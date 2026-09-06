@@ -1,0 +1,10 @@
+const wrap=u=>u?{...u,displayName:u.user_metadata?.display_name||u.user_metadata?.full_name||u.email?.split('@')[0]||'',getIdToken:async()=>{const {data,error}=await state.client.auth.getSession();if(error||!data.session)throw authError(error||new Error('Sesi berakhir.'));return data.session.access_token}}:null;
+let state;
+const authError=e=>{const x=new Error(e?.message||'Authentication failed');const m=x.message.toLowerCase();x.code=m.includes('invalid login')?'auth/invalid-credential':m.includes('already registered')?'auth/email-already-in-use':m.includes('password')?'auth/weak-password':'auth/error';return x};
+export function onAuthStateChanged(auth,callback){state=auth;auth.client.auth.getSession().then(({data})=>{auth.currentUser=wrap(data.session?.user);callback(auth.currentUser)});const {data}=auth.client.auth.onAuthStateChange((_event,session)=>{auth.currentUser=wrap(session?.user);callback(auth.currentUser)});return()=>data.subscription.unsubscribe()}
+export async function signInWithEmailAndPassword(auth,email,password){state=auth;const {data,error}=await auth.client.auth.signInWithPassword({email,password});if(error)throw authError(error);auth.currentUser=wrap(data.user);return{user:auth.currentUser}}
+export async function createUserWithEmailAndPassword(auth,email,password){state=auth;const {data,error}=await auth.client.auth.signUp({email,password});if(error)throw authError(error);auth.currentUser=wrap(data.user);return{user:auth.currentUser}}
+export async function sendPasswordResetEmail(auth,email){const {error}=await auth.client.auth.resetPasswordForEmail(email,{redirectTo:location.origin});if(error)throw authError(error)}
+export async function sendEmailVerification(){return true}
+export async function updateProfile(_user,values){const {data,error}=await state.client.auth.updateUser({data:{display_name:values.displayName,full_name:values.displayName}});if(error)throw authError(error);state.currentUser=wrap(data.user);return state.currentUser}
+export async function signOut(auth){const {error}=await auth.client.auth.signOut();if(error)throw authError(error);auth.currentUser=null}
