@@ -1,0 +1,17 @@
+node_modules/
+web/dist/
+.env
+.env.local
+web/.env.local
+functions/.env.local
+.firebaserc
+*-debug.log
+.firebase/
+service-account*.json
+*.json.key
+*.key
+*.pem
+.wrangler/
+web/.wrangler/
+*-credentials*
+*-to-copy.txt

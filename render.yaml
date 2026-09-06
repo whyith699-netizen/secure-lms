@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: secure-lms-backend
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: node functions/src/index.js
+    envVars:
+      - key: GCLOUD_PROJECT
+        value: codeclub-lms-56ad7c
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false

@@ -1,0 +1,29 @@
+{
+  "name": "secure-lms",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "web",
+    "functions"
+  ],
+  "scripts": {
+    "start": "node functions/src/index.js",
+    "dev": "npm run dev -w web",
+    "build": "npm run build --prefix web",
+    "test": "npm test -w functions",
+    "check": "node --check functions/src/index.js && node --check scripts/manage.mjs && npm run build",
+    "emulators": "npm run build && firebase emulators:start --only auth,firestore,storage,functions,hosting",
+    "deploy": "npm run build && firebase deploy --only hosting,functions,firestore:rules,firestore:indexes,storage",
+    "manage": "node scripts/manage.mjs",
+    "test:emulator": "RUN_EMULATOR_TESTS=1 node --test functions/test/integration.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0"
+  }
+}
