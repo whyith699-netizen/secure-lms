@@ -1,5 +1,5 @@
 {
-  "buildCommand":"npm run build -w web",
+  "buildCommand":"cd web && npm run build",
   "outputDirectory":"web/dist",
   "functions":{"api/index.js":{"maxDuration":10}},
   "rewrites":[{"source":"/api/(.*)","destination":"/api"},{"source":"/(.*)","destination":"/index.html"}]
