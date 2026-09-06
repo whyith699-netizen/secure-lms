@@ -13,7 +13,7 @@
   "scripts": {
     "start": "node functions/src/index.js",
     "dev": "npm run dev -w web",
-    "build": "npm run build --prefix web",
+    "build": "npm run build -w web",
     "test": "npm test -w functions",
     "check": "node --check functions/src/index.js && node --check scripts/manage.mjs && npm run build",
     "emulators": "npm run build && firebase emulators:start --only auth,firestore,storage,functions,hosting",

@@ -1,6 +1,5 @@
 {
-  "installCommand": "if [ -d web ]; then npm install && npm install --prefix web; else npm install; fi",
-  "buildCommand": "if [ -d web ]; then npm run build --prefix web; else npm run build; fi",
+  "buildCommand": "npm run build -w web",
   "outputDirectory": "web/dist",
   "rewrites": [
     {
