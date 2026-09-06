@@ -15,3 +15,5 @@ service-account*.json
 web/.wrangler/
 *-credentials*
 *-to-copy.txt
+.vercel
+.env*
