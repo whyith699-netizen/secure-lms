@@ -30,6 +30,7 @@ svg.icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.65;
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .sidebar{background:var(--side);border-right:1px solid var(--line);padding:28px 20px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
 .brand{display:flex;align-items:center;gap:10px;font-size:21px;font-weight:700;letter-spacing:-.8px}
+.brandlogo{height:36px;width:auto;max-width:38px;object-fit:contain;display:block}
 .brandmark{height:34px;width:34px;background:#000000;color:#ffffff;display:grid;place-items:center;font:700 18px Consolas,monospace;border-radius:5px}
 .workspace{margin:32px 0 28px;padding:12px;border:1px solid var(--line);border-radius:6px;display:flex;gap:10px;align-items:center;font-size:14px;background:#ffffff}
 .workspace strong{display:block;font-size:14px}
