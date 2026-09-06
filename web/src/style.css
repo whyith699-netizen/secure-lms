@@ -341,9 +341,21 @@ dialog .btn{min-height:44px}
 .checkrow input{width:20px;height:20px;min-height:0;margin:2px 0 0;flex-shrink:0;accent-color:#000000}
 .checkrow span{display:grid;gap:2px}
 .checkrow small{color:var(--muted)}
-.drive-embed{margin-top:24px;overflow:hidden}
+.drive-embed{margin-top:24px;overflow:hidden;border:1px solid var(--line)}
 .drive-embed iframe{display:block;width:100%;aspect-ratio:16/9;border:0;background:var(--side)}
-.drive-fallback{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;border-top:1px solid var(--line)}
+.drive-fallback{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;border-top:1px solid var(--line);background:#ffffff}
+
+.embed-instructions{margin:20px 0;padding:18px 20px;background:var(--side);border:1px solid var(--line);border-radius:var(--radius)}
+.embed-guide-header strong{display:block;font-size:14px;color:#000000;font-weight:700}
+.embed-guide-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+@media(max-width:720px){.embed-guide-grid{grid-template-columns:1fr}}
+.embed-guide-card{background:#ffffff;border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.embed-guide-title{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:#000000}
+.guide-badge{display:inline-flex;align-items:center;justify-content:center;background:#000000;color:#ffffff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px}
+.embed-steps{margin:0;padding-left:18px;font-size:12px;line-height:1.6;color:#171717}
+.embed-steps li{margin-bottom:6px}
+.embed-steps li:last-child{margin-bottom:0}
+.embed-steps code{background:var(--side);border:1px solid var(--line);padding:2px 5px;border-radius:3px;font-size:11px;color:#000000}
 
 @media(max-width:800px){
   .authlayout{grid-template-columns:1fr;gap:32px;padding:36px 24px;max-width:580px}
