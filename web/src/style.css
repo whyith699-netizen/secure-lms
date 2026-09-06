@@ -364,6 +364,12 @@ dialog .btn{min-height:44px}
 .btn-kas-unpaid:hover{border-color:#000000;color:#000000;background:#fafafa}
 .student-note{background:var(--side);border:1px solid var(--line);border-radius:4px;padding:3px 8px;font-size:12px;color:#111111;display:inline-block;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+.embed-item-card{transition:border-color 0.15s ease}
+.embed-item-card:hover{border-color:#000000}
+@media(max-width:700px){
+  .embed-input-grid{grid-template-columns:1fr !important}
+}
+
 @media(max-width:800px){
   .authlayout{grid-template-columns:1fr;gap:32px;padding:36px 24px;max-width:580px}
   .authlayout h1{font-size:34px}
