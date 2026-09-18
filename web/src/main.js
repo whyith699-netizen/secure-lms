@@ -1,246 +1,758 @@
 import './style.css';
-import {auth,configured,apiBase} from './firebase.js';
-import {onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,sendEmailVerification,sendPasswordResetEmail,signOut,updateProfile} from 'firebase/auth';
-import QRCode from 'qrcode';
-import {Html5Qrcode} from 'html5-qrcode';
-import {marked} from 'marked';
-import DOMPurify from 'dompurify';
-const $=id=>document.getElementById(id),root=$('app');
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const date=(s,time=false)=>s?new Date(s).toLocaleString('id-ID',{dateStyle:'medium',...(time?{timeStyle:'short'}:{})}):'—';
-const time=s=>s?new Date(s).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}):'—';
-const statusText=s=>({hadir:'Hadir',terlambat:'Hadir',izin:'Izin',sakit:'Sakit',tidak_hadir:'Tidak hadir',belum_hadir:'Tidak hadir',belum_presensi:'Tidak hadir',published:'Terbit',draft:'Draft',archived:'Diarsipkan',open:'Dibuka',closed:'Ditutup'})[s]||s;
-const tag=s=>`<span class="tag ${['hadir','published','open','terlambat'].includes(s)?'green':['draft'].includes(s)?'orange':''}">${esc(statusText(s))}</span>`;
-const button=(text,action,extra='',kind='')=>`<button type="button" class="btn ${kind}" data-action="${action}" ${extra}>${text}</button>`;
-const field=(label,name,value='',type='text',required=true)=>`<div class="field"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="${type}" value="${esc(value)}" ${required?'required':''}></div>`;
-const parseCanvaUrl=raw=>{if(!raw)return{url:'',embedUrl:''};let s=String(raw).trim();const m=s.match(/src=["']([^"']+)["']/i);if(m)s=m[1];try{const u=new URL(s);if(!u.hostname.includes('canva.com'))return{url:s,embedUrl:''};if(u.searchParams.has('embed'))return{url:s,embedUrl:s};const p=u.pathname.split('/').filter(Boolean);if(p[0]==='design'&&p[1]){const did=p[1],tok=(p[2]&&!['view','watch','edit','preview'].includes(p[2]))?p[2]:'';return{url:s,embedUrl:tok?`https://www.canva.com/design/${did}/${tok}/view?embed`:`https://www.canva.com/design/${did}/view?embed`}}}catch{}return{url:s,embedUrl:''}};
-const parseDriveUrl=raw=>{if(!raw)return{url:'',embedUrl:''};let s=String(raw).trim();const m=s.match(/src=["']([^"']+)["']/i);if(m)s=m[1];try{const u=new URL(s);if(u.hostname==='drive.google.com'){const match=u.pathname.match(/\/file\/d\/([A-Za-z0-9_-]{10,})/);if(match)return{url:s,embedUrl:`https://drive.google.com/file/d/${match[1]}/preview`}}if(u.hostname==='docs.google.com'){const pres=u.pathname.match(/\/presentation\/d\/([A-Za-z0-9_-]{10,})/);if(pres)return{url:s,embedUrl:`https://docs.google.com/presentation/d/${pres[1]}/embed?start=false&loop=false&delayms=3000`};const doc=u.pathname.match(/\/document\/d\/([A-Za-z0-9_-]{10,})/);if(doc)return{url:s,embedUrl:`https://docs.google.com/document/d/${doc[1]}/preview`};const sheet=u.pathname.match(/\/spreadsheets\/d\/([A-Za-z0-9_-]{10,})/);if(sheet)return{url:s,embedUrl:`https://docs.google.com/spreadsheets/d/${sheet[1]}/preview`}}}catch{}return{url:s,embedUrl:''}};
-const icons={
-  users:`<svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
-  classes:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/></svg>`,
-  teacher:`<svg class="icon" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`,
-  student:`<svg class="icon" viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 2 2 3 6 3s6-1 6-3v-5"/></svg>`,
-  home:`<svg class="icon" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
-  book:`<svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/></svg>`,
-  calendar:`<svg class="icon" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>`,
-  scan:`<svg class="icon" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>`,
-  history:`<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
-  profile:`<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>`,
-  menu:`<svg class="icon" viewBox="0 0 24 24"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>`,
-  close:`<svg class="icon" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>`,
-  link:`<svg class="icon" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
-  key:`<svg class="icon" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>`,
-  arrowLeft:`<svg class="icon" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`,
-  arrowRight:`<svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>`,
-  userPlus:`<svg class="icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" x2="20" y1="8" y2="14"/><line x1="23" x2="17" y1="11" y2="11"/></svg>`,
-  trash:`<svg class="icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
-  edit:`<svg class="icon" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`
-};
-const icon=n=>icons[n]||'';
-let me=null,mode='',classes=[],cid='',page='home',meetingId='',materialId='',scanner=null,poll=null,timer=null,qrState=null,epoch=0,toastTimer,authMode='login',adminSelectedClassId=null;
-let materialCache=[],meetingCache=[],historyCache=[],nextCursor=null,currentMaterial=null,currentMeeting=null;
-async function api(path,options={}){if(!auth?.currentUser)throw Error('Silakan masuk kembali.');const token=await auth.currentUser.getIdToken();let headers={Authorization:`Bearer ${token}`,...options.headers};let body=options.body;if(body&&!(body instanceof Blob)&&!(body instanceof ArrayBuffer)){headers['Content-Type']='application/json';body=JSON.stringify(body)}let res;try{res=await fetch(apiBase+path,{...options,headers,body})}catch{throw Error('Jaringan terputus. Periksa riwayat sebelum mengulang presensi.')}if(!res.ok){let data=await res.json().catch(()=>({message:`Permintaan gagal (${res.status}).`}));let e=Error(data.message);e.code=data.code;throw e}if(options.raw)return res;return res.json()}
-function toast(text){$('toast').textContent=text;$('toast').className='toast show';clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').className='toast',5000)}
-function message(text){const el=$('form-error');if(el){el.textContent=text;el.focus()}else toast(text)}
-const header=(eyebrow,title,sub,action='')=>`<div class="heading"><div><p class="eyebrow">${esc(eyebrow)}</p><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>${action}</div>`;
-const empty=(title,detail='')=>`<div class="panel empty"><h2>${esc(title)}</h2><p>${esc(detail)}</p></div>`;
-function brand(){return '<div class="brand"><img src="/logo-secure-tight.png" alt="Logo SECURE" class="brandlogo"><span>SECURE</span></div>'}
-function friendly(e){if(e.code==='INVALID_OLD_PASSWORD')return e.message||'Password lama tidak sesuai.';if(e.code==='INVALID_PASSWORD')return e.message||'Password baru minimal 6 karakter.';if(e.code==='SAME_PASSWORD')return e.message||'Password baru tidak boleh sama dengan password saat ini.';if(e.code==='auth/invalid-credential'||e.code==='auth/wrong-password'||e.code==='auth/user-not-found')return 'Email atau password tidak cocok.';if(e.code==='auth/email-already-in-use')return 'Email sudah mempunyai akun. Gunakan Masuk atau Lupa password.';if(e.code==='auth/weak-password')return 'Gunakan password minimal 8 karakter.';if(e.code==='auth/too-many-requests')return 'Terlalu banyak percobaan. Tunggu beberapa saat.';if(e.code==='auth/network-request-failed')return 'Tidak dapat terhubung. Periksa koneksi internet.';return e.message||'Terjadi kesalahan.'}
-function showAuth(){stopScan();clearInterval(poll);clearInterval(timer);me=null;const reset=authMode==='reset',signup=authMode==='signup';root.innerHTML=`<header class="adminhead">${brand()}</header><main class="authlayout"><section><p class="eyebrow">BELAJAR. MENCOBA. MEMBUAT.</p><h1>Tempat ide kecil<br>mulai jadi nyata.</h1><p class="muted">Materi, pertemuan, dan kehadiran.<br>Satu ruang untuk belajar coding bersama.</p><div class="codepreview"><span class="comment">// mulai dari satu langkah</span><br><span class="keyword">const</span> langkah = <span class="string">"coba dulu"</span>;</div></section><form class="panel panelpad" id="auth-form"><h2>${reset?'Pulihkan akses':signup?'Aktifkan akun':'Selamat datang kembali.'}</h2><p class="tiny muted">${signup?'Gunakan username yang sudah didaftarkan admin.':reset?'Masukkan username/email untuk menerima tautan pemulihan.':'Masuk dengan username atau email SECURE milikmu.'}</p>${signup?field('Nama lengkap','name'):''}${field('Username atau Email','email','','text')}${reset?'':field('Password','password','','password')}<p class="error" id="form-error" tabindex="-1" role="alert"></p><button class="btn primary full" type="submit">${reset?'Kirim tautan reset':signup?'Buat akun':'Masuk'}</button><div class="authlinks">${button(reset||signup?'Kembali masuk':'Aktifkan akun',reset||signup?'auth-login':'auth-signup','', 'text')}${!reset?button('Lupa password','auth-reset','','text'):''}</div><p class="tiny muted">Cukup masukkan username (misal: <code>budi</code>). Jika lupa password, hubungi Admin untuk dibuatkan link reset password.</p></form></main>`}
-function configScreen(){root.innerHTML=`<header class="adminhead">${brand()}</header><main class="adminmain">${header('Instalasi','Hubungkan Firebase dahulu.','Source code sudah siap dikonfigurasi.')}<div class="panel panelpad"><ol><li>Salin <code>web/.env.example</code> menjadi <code>web/.env.local</code>.</li><li>Isi konfigurasi web Firebase dari Project settings.</li><li>Jalankan <code>npm run dev</code> atau build ulang sebelum deploy.</li></ol><p class="muted">Lihat README.md dan docs/SETUP.md untuk panduan lengkap. Ini bukan halaman demo: data akan berasal dari Firebase Anda.</p></div></main>`}
-async function boot(user){if(!user){showAuth();return}root.innerHTML='<div class="empty">Memeriksa akses SECURE…</div>';try{me=await api('/me');mode=me.roles.includes('pengajar')?'pengajar':me.roles.includes('admin')?'admin':'siswa';classes=mode==='admin'?[]:await api('/classes');cid=classes[0]?.id||'';page=mode==='admin'?'admin-users':'home';renderShell();await loadPage(page)}catch(e){root.innerHTML=`<header class="adminhead">${brand()}</header><main class="adminmain">${header('Akses akun','Satu langkah lagi.',friendly(e))}<div class="buttonrow">${e.code==='VERIFY_EMAIL'?button('Kirim email verifikasi','verify','','primary'):''}${button('Periksa kembali','recheck')}${button('Keluar','logout')}</div><p class="tiny muted" style="margin-top:24px">Jika email belum diizinkan atau akun dinonaktifkan, hubungi pengelola SECURE.</p></main>`}}
-function renderShell(){
-  const teacher=mode==='pengajar';
-  const isAdmin=mode==='admin';
-  const nav=isAdmin?[
-    ['admin-users','Pengguna & Akses','users'],
-    ['admin-classes','Kelola Kelas','classes']
-  ]:[
-    ['home','Beranda','home'],
-    ['materials','Materi','book'],
-    ['meetings',teacher?'Pertemuan & presensi':'Pertemuan','calendar'],
-    ...(teacher?[]:[['scan','Scan presensi','scan'],['history','Riwayat presensi','history']]),
-    ['profile','Profil saya','profile']
-  ];
-  const classSwitcher=isAdmin?`<div class="workspace" style="margin:24px 0 20px;padding:12px;display:flex;gap:12px;align-items:center">${icon('key')}<div><strong style="font-size:14px">Panel Kontrol</strong><span class="tiny muted" style="font-size:12px">Administrasi Sistem</span></div></div>`:`<div class="field" style="margin-top:32px"><label for="class-select">Kelas aktif</label><select id="class-select">${classes.length?classes.map(c=>`<option value="${esc(c.id)}" ${cid===c.id?'selected':''}>${esc(c.name)}</option>`).join(''):'<option>Belum ada kelas</option>'}</select></div>`;
-  root.innerHTML=`<div class="app"><div class="menuback" id="menuback" data-action="menu-close"></div><aside class="sidebar" id="sidebar">${brand()}${classSwitcher}<p class="navlabel">RUANG ${mode.toUpperCase()}</p><nav class="nav">${nav.map(([id,label,ic])=>`<button data-action="nav" data-page="${id}" class="${page===id?'active':''}">${icon(ic)}<span>${label}</span></button>`).join('')}</nav><div class="sidebottom">${roleSelect()}<div class="sidehint">${esc(me.displayName)}<br><span class="tiny">${esc(me.email)}</span></div>${button('Keluar','logout')}</div></aside><main class="main"><header class="topbar"><div class="crumb"><button class="mobilemenu" data-action="menu-open" aria-label="Buka menu">${icon('menu')}</button><span>Ruang ${mode}</span></div><span class="tiny muted">SECURE LMS</span></header><div class="page"><div id="content"></div></div></main></div>`;
+import { auth, configured } from './firebase.js';
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signOut,
+  updateProfile
+} from 'firebase/auth';
+
+import { state, api, $, toast, message, friendly, download } from './state.js';
+import { esc, header, empty, brand, button, icon } from './ui.js';
+import { initRouter, navigate, getPath, dispatchRoute } from './router.js';
+
+import { showAuth, configScreen } from './pages/auth.js';
+import { homeView } from './pages/home.js';
+import { materialsView, detailView, editorView, materialList, renderEmbedRow } from './pages/materials.js';
+import { meetingsView, meetingDetailView, meetingEditor, meetingList } from './pages/meetings.js';
+import { sessionView, rosterTable, drawQR, startSessionUpdates, stopSessionUpdates } from './pages/session.js';
+import { scanView, startScan, stopScan } from './pages/scan.js';
+import { historyView, historyTable } from './pages/history.js';
+import { profileView } from './pages/profile.js';
+import { adminUsersView, adminClassesListView, adminClassDetailView } from './pages/admin.js';
+
+const root = $('app');
+
+function isNavActive(navPath, currentPath) {
+  if (navPath === '/beranda') return currentPath === '/' || currentPath === '/beranda';
+  if (navPath === '/admin/pengguna') return currentPath === '/admin' || currentPath === '/admin/pengguna';
+  return currentPath.startsWith(navPath);
 }
-function roleSelect(){return me.roles.length>1?`<select id="role-select" aria-label="Pilih ruang akun">${me.roles.map(r=>`<option ${r===mode?'selected':''}>${r}</option>`).join('')}</select>`:''}
-async function stopScan(){if(scanner){let old=scanner;scanner=null;try{await old.stop()}catch{}try{old.clear()}catch{}}}
-async function loadPage(target){
-  await stopScan();clearInterval(poll);clearInterval(timer);page=target;nextCursor=null;const e=++epoch;
-  if($('sidebar')){$('sidebar').classList.remove('open');$('menuback').classList.remove('show')}
-  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===target));
-  const el=$('content');
-  if(el){
-    if(!el.children.length)el.innerHTML='<div class="empty" role="status">Memuat…</div>';
-    else{el.style.opacity='0.55';el.style.transition='opacity 0.12s ease';}
+
+function updateNavActive() {
+  const current = getPath();
+  document.querySelectorAll('.nav button').forEach(b => {
+    const navPath = b.dataset.nav;
+    if (navPath) {
+      b.classList.toggle('active', isNavActive(navPath, current));
+    }
+  });
+}
+
+function renderShell() {
+  const teacher = state.mode === 'pengajar';
+  const isAdmin = state.mode === 'admin';
+  const current = getPath();
+
+  const nav = isAdmin ? [
+    ['/admin/pengguna', 'Pengguna & Akses', 'users'],
+    ['/admin/kelas', 'Kelola Kelas', 'classes'],
+    ['/profil', 'Profil saya', 'profile']
+  ] : [
+    ['/beranda', 'Beranda', 'home'],
+    ['/materi', 'Materi', 'book'],
+    ['/pertemuan', teacher ? 'Pertemuan & presensi' : 'Pertemuan', 'calendar'],
+    ...(teacher ? [] : [['/scan', 'Scan presensi', 'scan'], ['/riwayat', 'Riwayat presensi', 'history']]),
+    ['/profil', 'Profil saya', 'profile']
+  ];
+
+  const classSwitcher = isAdmin ? `
+    <div class="workspace" style="margin:24px 0 20px;padding:12px;display:flex;gap:12px;align-items:center">
+      ${icon('key')}
+      <div>
+        <strong style="font-size:14px">Panel Kontrol</strong>
+        <span class="tiny muted" style="font-size:12px">Administrasi Sistem</span>
+      </div>
+    </div>
+  ` : `
+    <div class="field" style="margin-top:32px">
+      <label for="class-select">Kelas aktif</label>
+      <select id="class-select">
+        ${state.classes.length ? state.classes.map(c => `
+          <option value="${esc(c.id)}" ${state.cid === c.id ? 'selected' : ''}>${esc(c.name)}</option>
+        `).join('') : '<option>Belum ada kelas</option>'}
+      </select>
+    </div>
+  `;
+
+  root.innerHTML = `
+    <div class="app">
+      <div class="menuback" id="menuback" data-action="menu-close"></div>
+      <aside class="sidebar" id="sidebar">
+        ${brand()}
+        ${classSwitcher}
+        <p class="navlabel">RUANG ${state.mode.toUpperCase()}</p>
+        <nav class="nav">
+          ${nav.map(([navPath, label, ic]) => `
+            <button data-action="nav" data-nav="${navPath}" class="${isNavActive(navPath, current) ? 'active' : ''}">
+              ${icon(ic)}
+              <span>${label}</span>
+            </button>
+          `).join('')}
+        </nav>
+        <div class="sidebottom">
+          ${roleSelect()}
+          <div class="sidehint">
+            ${esc(state.me.displayName)}<br>
+            <span class="tiny">${esc(state.me.email)}</span>
+          </div>
+          ${button('Keluar', 'logout')}
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="crumb">
+            <button class="mobilemenu" data-action="menu-open" aria-label="Buka menu">${icon('menu')}</button>
+            <span>Ruang ${state.mode}</span>
+          </div>
+          <span class="tiny muted">SECURE LMS</span>
+        </header>
+        <div class="page">
+          <div id="content"></div>
+        </div>
+      </main>
+    </div>
+  `;
+}
+
+function roleSelect() {
+  return state.me.roles.length > 1 ? `
+    <select id="role-select" aria-label="Pilih ruang akun">
+      ${state.me.roles.map(r => `<option ${r === state.mode ? 'selected' : ''}>${r}</option>`).join('')}
+    </select>
+  ` : '';
+}
+
+async function loadPage(target, targetId = null) {
+  await stopScan();
+  stopSessionUpdates();
+  clearInterval(state.timer);
+  state.nextCursor = null;
+  const e = ++state.epoch;
+
+  if ($('sidebar')) {
+    $('sidebar').classList.remove('open');
+    $('menuback').classList.remove('show');
   }
-  try{
-    let html='';
-    if(target==='admin-users'||(mode==='admin'&&target==='home')){
-      adminSelectedClassId=null;
-      html=await adminUsersView();
-    } else if(target==='admin-classes'){
-      if(adminSelectedClassId)html=await adminClassDetailView(adminSelectedClassId);
-      else html=await adminClassesListView();
-    } else if(!cid&&!['profile','history'].includes(target)){
-      html=header('SECURE','Kelas belum ditetapkan.','Akunmu aktif, tetapi belum terdaftar di kelas.')+empty('Hubungi pengelola','Pengelola dapat menambahkan keanggotaan melalui skrip administrasi.');
-    } else if(target==='home')html=await homeView();
-    else if(target==='materials')html=await materialsView();
-    else if(target==='material')html=await detailView();
-    else if(target==='editor')html=editorView();
-    else if(target==='meetings')html=await meetingsView();
-    else if(target==='meeting-detail')html=await meetingDetailView();
-    else if(target==='new-meeting')html=await meetingEditor();
-    else if(target==='session')html=await sessionView();
-    else if(target==='scan')html=scanView();
-    else if(target==='history')html=await historyView();
-    else if(target==='profile')html=profileView();
-    if(e!==epoch)return;
-    if(el){el.innerHTML=html;el.style.opacity='1';}
-    window.scrollTo(0,0);
-    if(target==='session')startSessionUpdates();
-  }catch(err){
-    if(e===epoch&&el){
-      el.style.opacity='1';
-      el.innerHTML=empty('Belum dapat memuat halaman',friendly(err))+button('Coba lagi','reload');
+  updateNavActive();
+
+  const el = $('content');
+  if (el) {
+    if (!el.children.length) el.innerHTML = '<div class="empty" role="status">Memuat…</div>';
+    else {
+      el.style.opacity = '0.55';
+      el.style.transition = 'opacity 0.12s ease';
+    }
+  }
+
+  try {
+    let html = '';
+    const curPath = getPath();
+
+    if (target === 'admin-users' || (state.mode === 'admin' && target === 'home')) {
+      html = await adminUsersView();
+    } else if (target === 'admin-classes') {
+      html = await adminClassesListView();
+    } else if (target === 'admin-class-detail') {
+      html = await adminClassDetailView(targetId);
+    } else if (!state.cid && !['/profil', '/riwayat'].includes(curPath) && state.mode !== 'admin') {
+      html = header('SECURE', 'Kelas belum ditetapkan.', 'Akunmu aktif, tetapi belum terdaftar di kelas.') +
+        empty('Hubungi pengelola', 'Pengelola dapat menambahkan keanggotaan melalui skrip administrasi.');
+    } else if (target === 'home') {
+      html = await homeView();
+    } else if (target === 'materials') {
+      html = await materialsView();
+    } else if (target === 'material') {
+      html = await detailView(targetId);
+    } else if (target === 'editor') {
+      html = await editorView(targetId);
+    } else if (target === 'meetings') {
+      html = await meetingsView();
+    } else if (target === 'meeting-detail') {
+      html = await meetingDetailView(targetId);
+    } else if (target === 'new-meeting') {
+      html = await meetingEditor(targetId);
+    } else if (target === 'session') {
+      html = await sessionView(targetId);
+    } else if (target === 'scan') {
+      html = scanView();
+    } else if (target === 'history') {
+      html = await historyView();
+    } else if (target === 'profile') {
+      html = profileView();
+    }
+
+    if (e !== state.epoch) return;
+    if (el) {
+      el.innerHTML = html;
+      el.style.opacity = '1';
+    }
+    window.scrollTo(0, 0);
+
+    if (target === 'session' && targetId) {
+      startSessionUpdates(targetId);
+    }
+  } catch (err) {
+    if (e === state.epoch && el) {
+      el.style.opacity = '1';
+      el.innerHTML = empty('Belum dapat memuat halaman', friendly(err)) + button('Coba lagi', 'reload');
     }
   }
 }
 
-let cachedUsers=null,cachedUsersTime=0,cachedClasses=null,cachedClassesTime=0;
-async function adminUsersView(force=false){
-  let users=[];
-  const now=Date.now();
-  if(!force&&cachedUsers&&(now-cachedUsersTime<30000)){
-    users=cachedUsers;
-  }else{
-    try{users=await api('/admin/users');cachedUsers=users;cachedUsersTime=now;}catch(e){console.warn('Gagal memuat pengguna:',e.message);users=cachedUsers||[];}
+// Router routes configuration
+const routes = [
+  { path: '/', handler: () => loadPage(state.mode === 'admin' ? 'admin-users' : 'home') },
+  { path: '/beranda', handler: () => loadPage('home') },
+  
+  // Materials
+  { path: '/materi', handler: () => loadPage('materials') },
+  { path: '/materi/baru', handler: () => loadPage('editor') },
+  { path: '/materi/:id', handler: p => loadPage('material', p.id) },
+  { path: '/materi/:id/edit', handler: p => loadPage('editor', p.id) },
+  
+  // Meetings
+  { path: '/pertemuan', handler: () => loadPage('meetings') },
+  { path: '/pertemuan/baru', handler: () => loadPage('new-meeting') },
+  { path: '/pertemuan/:id', handler: p => loadPage('meeting-detail', p.id) },
+  { path: '/pertemuan/:id/edit', handler: p => loadPage('new-meeting', p.id) },
+  { path: '/pertemuan/:id/presensi', handler: p => loadPage('session', p.id) },
+  { path: '/presensi/:id', handler: p => loadPage('session', p.id) },
+
+  // Scan & History
+  { path: '/scan', handler: () => loadPage('scan') },
+  { path: '/riwayat', handler: () => loadPage('history') },
+
+  // Profile
+  { path: '/profil', handler: () => loadPage('profile') },
+
+  // Admin
+  { path: '/admin', handler: () => loadPage('admin-users') },
+  { path: '/admin/pengguna', handler: () => loadPage('admin-users') },
+  { path: '/admin/kelas', handler: () => loadPage('admin-classes') },
+  { path: '/admin/kelas/:id', handler: p => loadPage('admin-class-detail', p.id) }
+];
+
+async function onRouteNotFound(path) {
+  console.warn('Rute tidak ditemukan:', path);
+  if (state.mode === 'admin') navigate('/admin/pengguna', { replace: true });
+  else navigate('/beranda', { replace: true });
+}
+
+async function boot(user) {
+  if (!user) {
+    showAuth();
+    return;
   }
-  return header('Administrasi Pengguna & Akses','Kelola Akun, Role, dan Sandi','Admin dapat menambahkan akun dengan username @secure.sch.id dan membagikan link reset kata sandi.')+`<div class="adminlayout" style="grid-template-columns:minmax(0,1fr) 360px"><section><div class="panel panelpad" style="margin-bottom:28px"><h2>Daftar Pengguna (${users.length})</h2><p class="tiny muted">Pengguna berdomain <code>@secure.sch.id</code> dapat masuk langsung memakai username (tanpa perlu email asli).</p><div class="panel tablewrap" style="margin-top:16px"><table><thead><tr><th>USERNAME</th><th>NAMA</th><th>ROLE</th><th>STATUS</th><th>AKSI</th></tr></thead><tbody>${users.length?users.map(u=>`<tr><td><strong>${esc(u.email.endsWith('@secure.sch.id')?u.email.replace('@secure.sch.id',''):u.email)}</strong><small>${esc(u.email)}</small></td><td><strong>${esc(u.displayName||'—')}</strong>${u.schoolClass?`<br><small class="muted">Kelas: ${esc(u.schoolClass)}</small>`:''}</td><td><span class="tag ${u.roles?.includes('admin')?'orange':u.roles?.includes('pengajar')?'blue':'green'}">${esc(u.roles?.[0]||'siswa')}</span></td><td><span class="tag ${u.active!==false?'green':''}">${u.active!==false?'Aktif':'Nonaktif'}</span></td><td style="white-space:nowrap"><button type="button" class="btn text" data-action="admin-get-link" data-email="${esc(u.email)}" data-name="${esc(u.displayName||u.email)}" style="padding:4px 8px;font-size:13px">${icon('link')} Link Reset</button><button type="button" class="btn text" data-action="admin-change-pw" data-email="${esc(u.email)}" data-name="${esc(u.displayName||u.email)}" style="padding:4px 8px;font-size:13px">${icon('key')} Ubah PW</button>${!u.roles?.includes('admin')?`<button type="button" class="btn text" data-action="admin-toggle-role" data-uid="${esc(u.id)}" data-name="${esc(u.displayName||u.email)}" data-role="${esc(u.roles?.[0]||'siswa')}" style="padding:4px 8px;font-size:13px">${u.roles?.includes('pengajar')?'Jadikan Siswa':'Jadikan Pengajar'}</button><button type="button" class="btn text danger" data-action="admin-toggle-active" data-uid="${esc(u.id)}" style="padding:4px 8px;font-size:13px">${u.active!==false?'Nonaktifkan':'Aktifkan'}</button>`:''}</td></tr>`).join(''):'<tr><td colspan="5" style="text-align:center;padding:24px" class="muted">Belum ada pengguna. Tambahkan melalui form di samping.</td></tr>'}</tbody></table></div></div><div id="added-users-result" aria-live="polite"></div></section><aside><form class="panel adminform" id="admin-user-form"><h2>Tambah Pengguna Baru</h2><p class="tiny muted">Akun dibuat langsung tanpa perlu verifikasi email eksternal.</p><div class="field"><label for="admin-username">Username</label><input id="admin-username" name="username" type="text" placeholder="contoh: budi atau siti" required><small class="muted">Otomatis menjadi <code>username@secure.sch.id</code></small></div><div class="field"><label for="admin-name">Nama Lengkap</label><input id="admin-name" name="name" type="text" placeholder="contoh: Budi Santoso" required></div><div class="field"><label for="admin-role">Peran (Role)</label><select id="admin-role" name="role"><option value="siswa" selected>Siswa</option><option value="pengajar">Pengajar (Guru)</option></select></div><div class="field" id="admin-school-class-field"><label for="admin-school-class">Kelas Sekolah (khusus Siswa)</label><input id="admin-school-class" name="schoolClass" type="text" placeholder="contoh: X-RPL 1 atau XI-IPA 2"><small class="muted">Tersimpan di profil siswa dan otomatis dipakai saat enrol kelas.</small></div><div class="field"><label for="admin-password">Password Awal</label><input id="admin-password" name="password" type="text" value="Secure123!" placeholder="Minimal 6 karakter" required><small class="muted">Default: <code>Secure123!</code></small></div><p class="error" id="form-error" tabindex="-1" role="alert"></p><button class="btn primary full" type="submit">${icon('userPlus')} Buat Akun & Akses</button></form><div class="notice" style="margin-top:20px"><p><strong>Lupa Password?</strong><br>Jika siswa/pengajar lupa kata sandi, Admin cukup klik tombol <strong>Link Reset</strong> di tabel untuk menyalin link ganti password dan membagikannya via chat.</p></div></aside></div><dialog id="admin-link-modal"><div class="modalhead"><h2>Tautan Reset Kata Sandi</h2><button type="button" class="close" data-action="close-modal">${icon('close')}</button></div><div class="modalbody"><p id="reset-modal-info" class="muted" style="margin-bottom:12px"></p><div class="field"><textarea id="reset-link-text" readonly rows="4" style="font-family:monospace;font-size:12px;width:100%"></textarea></div><div class="buttonrow"><button class="btn primary" type="button" data-action="copy-reset-link">Salin Tautan</button><button class="btn" type="button" data-action="close-modal">Tutup</button></div></div></dialog><dialog id="admin-password-modal"><div class="modalhead"><h2>Ubah Password Akun</h2><button type="button" class="close" data-action="close-modal">${icon('close')}</button></div><div class="modalbody"><form id="admin-set-pw-form"><input type="hidden" name="email" id="setpw-email"><p id="setpw-target-name" style="margin-bottom:16px"></p><div class="field"><label for="setpw-password">Password Baru</label><input type="text" id="setpw-password" name="password" minlength="6" placeholder="Minimal 6 karakter" value="Secure123!" required></div><p class="error" id="setpw-error"></p><div class="buttonrow"><button class="btn primary" type="submit">Simpan Password</button><button class="btn" type="button" data-action="close-modal">Batal</button></div></form></div></dialog>`;
-}
+  root.innerHTML = '<div class="empty">Memeriksa akses SECURE…</div>';
+  try {
+    state.me = await api('/me');
+    state.mode = state.me.roles.includes('pengajar') ? 'pengajar' : state.me.roles.includes('admin') ? 'admin' : 'siswa';
+    state.classes = state.mode === 'admin' ? [] : await api('/classes');
+    state.cid = state.classes[0]?.id || '';
 
-function adminEditClassModal(){
-  return `<dialog id="admin-edit-class-modal"><div class="modalhead"><h2>Edit Informasi Kelas</h2><button type="button" class="close" data-action="close-modal">${icon('close')}</button></div><div class="modalbody"><form id="admin-edit-class-form"><input type="hidden" name="cid" id="edit-class-id"><p class="tiny muted" id="edit-class-id-label" style="margin-bottom:12px"></p><div class="field"><label for="edit-class-name">Nama Kelas</label><input id="edit-class-name" name="name" type="text" required></div><div class="field"><label for="edit-class-period">Periode / Tahun Ajaran</label><input id="edit-class-period" name="period" type="text" required></div><div class="field"><label for="edit-class-desc">Deskripsi Kelas</label><textarea id="edit-class-desc" name="description" rows="3" placeholder="Deskripsi atau jadwal kelas..."></textarea></div><p class="error" id="edit-class-error" tabindex="-1" role="alert"></p><div class="buttonrow"><button class="btn primary" type="submit">Simpan Perubahan</button><button class="btn" type="button" data-action="close-modal">Batal</button></div></form></div></dialog>`;
-}
+    renderShell();
 
-async function adminClassesListView(force=false){
-  let classesList = [];
-  const now=Date.now();
-  if(!force&&cachedClasses&&(now-cachedClassesTime<30000)){
-    classesList=cachedClasses;
-  }else{
-    try{classesList=await api('/admin/classes');cachedClasses=classesList;cachedClassesTime=now;}catch(e){console.warn('Gagal memuat kelas:',e.message);classesList=cachedClasses||[];}
+    let initial = getPath();
+    if (initial === '/') {
+      initial = state.mode === 'admin' ? '/admin/pengguna' : '/beranda';
+      navigate(initial, { replace: true });
+    } else {
+      await dispatchRoute(initial);
+    }
+  } catch (e) {
+    root.innerHTML = `
+      <header class="adminhead">${brand()}</header>
+      <main class="adminmain">
+        ${header('Akses akun', 'Satu langkah lagi.', friendly(e))}
+        <div class="buttonrow">
+          ${e.code === 'VERIFY_EMAIL' ? button('Kirim email verifikasi', 'verify', '', 'primary') : ''}
+          ${button('Periksa kembali', 'recheck')}
+          ${button('Keluar', 'logout')}
+        </div>
+        <p class="tiny muted" style="margin-top:24px">Jika email belum diizinkan atau akun dinonaktifkan, hubungi pengelola SECURE.</p>
+      </main>
+    `;
   }
-  return header('Kelola Kelas SECURE','Daftar Kelas & Akses','Buat kelas baru, tetapkan pengajar, dan enrol siswa ke kelas.')+`<div class="adminlayout" style="grid-template-columns:minmax(0,1fr) 360px"><section><div class="panel panelpad" style="margin-bottom:28px"><h2>Daftar Kelas (${classesList.length})</h2><p class="tiny muted">Pilih <strong>Kelola Peserta & Guru</strong> untuk menambah atau mengeluarkan anggota kelas.</p><div class="panel tablewrap" style="margin-top:16px"><table><thead><tr><th>KODE KELAS</th><th>NAMA KELAS</th><th>PERIODE</th><th>GURU</th><th>SISWA</th><th>STATUS</th><th>AKSI</th></tr></thead><tbody>${classesList.length?classesList.map(c=>`<tr><td><code>${esc(c.id)}</code></td><td><strong>${esc(c.name)}</strong>${c.description?`<small>${esc(c.description)}</small>`:''}</td><td>${esc(c.period||'—')}</td><td><span class="tag blue">${c.teacherCount||0} Pengajar</span></td><td><span class="tag green">${c.studentCount||0} Siswa</span></td><td><span class="tag ${c.archivedAt?'orange':'green'}">${c.archivedAt?'Arsip':'Aktif'}</span></td><td style="white-space:nowrap"><button type="button" class="btn primary" data-action="admin-select-class" data-id="${esc(c.id)}" style="padding:4px 10px;font-size:13px">Kelola Peserta & Guru</button><button type="button" class="btn text" data-action="admin-edit-class" data-id="${esc(c.id)}" data-name="${esc(c.name)}" data-period="${esc(c.period||'')}" data-desc="${esc(c.description||'')}" style="padding:4px 8px;font-size:13px">${icon('edit')} Edit</button><button type="button" class="btn text ${c.archivedAt?'':'danger'}" data-action="admin-toggle-archive-class" data-id="${esc(c.id)}" data-archived="${Boolean(c.archivedAt)}" style="padding:4px 8px;font-size:13px">${c.archivedAt?'Buka Arsip':'Arsipkan'}</button><button type="button" class="btn text danger" data-action="admin-delete-class" data-id="${esc(c.id)}" data-name="${esc(c.name)}" style="padding:4px 8px;font-size:13px">${icon('trash')} Hapus</button></td></tr>`).join(''):'<tr><td colspan="7" style="text-align:center;padding:24px" class="muted">Belum ada kelas. Tambahkan melalui form di samping.</td></tr>'}</tbody></table></div></div></section><aside><form class="panel adminform" id="admin-create-class-form"><h2>Tambah Kelas Baru</h2><p class="tiny muted">Buat ruang kelas baru untuk kegiatan belajar mengajar.</p><div class="field"><label for="new-class-name">Nama Kelas</label><input id="new-class-name" name="name" type="text" placeholder="contoh: Web Dasar Angkatan 2026" required></div><div class="field"><label for="new-class-id">ID / Slug Kelas (Opsional)</label><input id="new-class-id" name="id" type="text" placeholder="contoh: web-dasar-2026"><small class="muted">Huruf kecil & tanda minus. Dibuat otomatis jika kosong.</small></div><div class="field"><label for="new-class-period">Periode / Tahun Ajaran</label><input id="new-class-period" name="period" type="text" placeholder="contoh: 2026/2027 Ganjil" required></div><div class="field"><label for="new-class-desc">Deskripsi Kelas</label><textarea id="new-class-desc" name="description" placeholder="Deskripsi atau jadwal..." rows="3"></textarea></div><p class="error" id="form-error" tabindex="-1" role="alert"></p><button class="btn primary full" type="submit">Buat Kelas Baru</button></form></aside></div>`+adminEditClassModal();
 }
 
-async function adminClassDetailView(classId){
-  let cData = null, allUsers = [];
-  try{
-    const usersPromise = (cachedUsers && (Date.now() - cachedUsersTime < 30000)) ? Promise.resolve(cachedUsers) : api('/admin/users');
-    const [cd, users] = await Promise.all([api(`/admin/classes/${classId}`), usersPromise]);
-    cData = cd;
-    allUsers = users;
-    cachedUsers = users;
-    cachedUsersTime = Date.now();
-  }catch(e){
-    return `<div class="panel empty"><h2>Gagal memuat detail kelas</h2><p>${esc(friendly(e))}</p><div class="buttonrow" style="margin-top:16px"><button type="button" class="btn" data-action="admin-back-classes">${icon('arrowLeft')} Kembali ke Daftar Kelas</button></div></div>`;
+function getActiveMeetingId() {
+  const match = getPath().match(/\/pertemuan\/([^/]+)/);
+  if (match && match[1] !== 'baru') return match[1];
+  const presensiMatch = getPath().match(/\/presensi\/([^/]+)/);
+  if (presensiMatch) return presensiMatch[1];
+  return state.rosterCache?.meeting?.id || state.currentMeeting?.meeting?.id || null;
+}
+
+const actionHandlers = {
+  'auth-login': () => { state.authMode = 'login'; showAuth(); },
+  'auth-signup': () => { state.authMode = 'signup'; showAuth(); },
+  'auth-reset': () => { state.authMode = 'reset'; showAuth(); },
+  logout: () => signOut(auth),
+  'logout-all': async () => { await api('/logout-all', { method: 'POST' }); await signOut(auth); },
+  verify: async () => { await sendEmailVerification(auth.currentUser); toast('Email verifikasi dikirim. Periksa inbox dan folder spam.'); },
+  recheck: async () => { await auth.currentUser.reload(); await auth.currentUser.getIdToken(true); await boot(auth.currentUser); },
+  nav: b => {
+    if (b.dataset.nav) navigate(b.dataset.nav);
+    else if (b.dataset.page) {
+      const pageMap = {
+        home: '/beranda',
+        materials: '/materi',
+        meetings: '/pertemuan',
+        scan: '/scan',
+        history: '/riwayat',
+        profile: '/profil',
+        'admin-users': '/admin/pengguna',
+        'admin-classes': '/admin/kelas'
+      };
+      navigate(pageMap[b.dataset.page] || '/beranda');
+    }
+  },
+  reload: () => dispatchRoute(getPath()),
+  'menu-open': () => { $('sidebar').classList.add('open'); $('menuback').classList.add('show'); },
+  'menu-close': () => { $('sidebar').classList.remove('open'); $('menuback').classList.remove('show'); },
+  material: b => navigate(`/materi/${b.dataset.id}`),
+  'new-material': () => navigate('/materi/baru'),
+  'edit-material': () => navigate(`/materi/${state.currentMaterial?.id || ''}/edit`),
+  'add-embed-row': () => {
+    const container = $('embed-items-list');
+    if (!container) return;
+    const count = container.querySelectorAll('[data-embed-row]').length;
+    container.insertAdjacentHTML('beforeend', renderEmbedRow({ title: '', url: '' }, count));
+  },
+  'remove-embed-row': b => {
+    const row = b.closest('[data-embed-row]');
+    if (row) row.remove();
+    const container = $('embed-items-list');
+    if (container) {
+      const rows = container.querySelectorAll('[data-embed-row]');
+      if (!rows.length) {
+        container.innerHTML = renderEmbedRow({ title: '', url: '' }, 0);
+      } else {
+        rows.forEach((r, i) => {
+          const badge = r.querySelector('.guide-badge');
+          if (badge) badge.textContent = `Dokumen #${i + 1}`;
+        });
+      }
+    }
+  },
+  'meeting-detail': b => b.dataset.id ? navigate(`/pertemuan/${b.dataset.id}`) : navigate('/pertemuan'),
+  'new-meeting': () => navigate('/pertemuan/baru'),
+  'edit-meeting': () => navigate(`/pertemuan/${state.currentMeeting?.meeting?.id || ''}/edit`),
+  session: b => navigate(`/pertemuan/${b.dataset.id}/presensi`),
+  'open-session': async () => {
+    const mId = getActiveMeetingId();
+    if (!mId) return;
+    await api(`/meetings/${mId}/open`, { method: 'POST' });
+    const r = await api(`/meetings/${mId}/qr`, { method: 'POST' });
+    state.qrState = { ...r, meetingId: mId };
+    await dispatchRoute(getPath());
+    toast('Sesi presensi dibuka & QR aktif.');
+  },
+  'generate-qr': async () => {
+    const mId = getActiveMeetingId();
+    if (!mId) return;
+    const r = await api(`/meetings/${mId}/qr`, { method: 'POST' });
+    state.qrState = { ...r, meetingId: mId };
+    await drawQR(mId);
+    toast('QR berhasil diperbarui.');
+  },
+  'close-session': async () => {
+    const mId = getActiveMeetingId();
+    if (!confirm('Tutup presensi? Sesi tidak dapat dibuka ulang. Peserta yang belum tercatat akan diberi status tidak hadir.')) return;
+    await api(`/meetings/${mId}/close`, { method: 'POST' });
+    state.qrState = null;
+    await dispatchRoute(getPath());
+    toast('Sesi ditutup dan rekap difinalisasi.');
+  },
+  'toggle-kas': async b => {
+    const sId = b.dataset.uid;
+    const mId = getActiveMeetingId();
+    if (!mId) return;
+    const res = await api(`/meetings/${mId}/attendance/${sId}/toggle-kas`, { method: 'POST' });
+    toast(`Status kas ${b.dataset.name}: ${res.kasPaid ? 'Sudah Bayar' : 'Belum Bayar'}`);
+    if (getPath().includes('/presensi')) {
+      state.rosterCache = await api(`/meetings/${mId}/attendance`);
+      if ($('roster-panel')) $('roster-panel').innerHTML = rosterTable(state.rosterCache);
+    } else {
+      await dispatchRoute(getPath());
+    }
+  },
+  'edit-note': b => {
+    const sId = b.dataset.uid, name = b.dataset.name, currentNote = b.dataset.note || '';
+    $('note-uid').value = sId;
+    $('note-name').textContent = `Siswa: ${name}`;
+    $('note-input').value = currentNote;
+    if ($('note-modal-error')) $('note-modal-error').textContent = '';
+    $('note-modal').showModal();
+  },
+  correct: b => {
+    const r = state.rosterCache.data.find(x => x.studentId === b.dataset.uid);
+    $('correction-uid').value = r.studentId;
+    $('correction-name').textContent = `${r.displayName} (${r.schoolClass || '—'})`;
+    $('correction-status').value = r.status === 'hadir' ? 'hadir' : 'tidak_hadir';
+    $('correction-kas').value = r.kasPaid ? '1' : '0';
+    $('correction-notes').value = r.notes || '';
+    if ($('form-error')) $('form-error').textContent = '';
+    $('correction').showModal();
+  },
+  'close-modal': () => document.querySelectorAll('dialog[open]').forEach(d => d.close()),
+  export: () => {
+    const mId = getActiveMeetingId();
+    if (mId) download(`/meetings/${mId}/export`, 'presensi-secure.csv');
+  },
+  'start-scan': startScan,
+  'stop-scan': async () => {
+    await stopScan();
+    if ($('scan-message')) $('scan-message').textContent = 'Kamera dihentikan.';
+  },
+  'more-materials': async () => {
+    const r = await api(`/classes/${state.cid}/materials?cursor=${encodeURIComponent(state.nextCursor)}`);
+    state.materialCache.push(...r.data);
+    state.nextCursor = r.nextCursor;
+    $('material-list').innerHTML = materialList();
+    document.querySelector('.loadmore').innerHTML = state.nextCursor ? button('Muat lebih banyak', 'more-materials') : '';
+  },
+  'more-meetings': async () => {
+    const r = await api(`/classes/${state.cid}/meetings?cursor=${encodeURIComponent(state.nextCursor)}`);
+    state.meetingCache.push(...r.data);
+    state.nextCursor = r.nextCursor;
+    $('meeting-list').innerHTML = meetingList();
+    document.querySelector('.loadmore').innerHTML = state.nextCursor ? button('Muat lebih banyak', 'more-meetings') : '';
+  },
+  'more-history': async () => {
+    const r = await api(`/me/attendance?cursor=${encodeURIComponent(state.nextCursor)}`);
+    state.historyCache.push(...r.data);
+    state.nextCursor = r.nextCursor;
+    $('history-list').innerHTML = historyTable();
+    document.querySelector('.loadmore').innerHTML = state.nextCursor ? button('Muat lebih banyak', 'more-history') : '';
+  },
+  'admin-get-link': async b => {
+    const res = await api('/admin/reset-link', { method: 'POST', body: { username: b.dataset.email } });
+    $('reset-modal-info').textContent = `Tautan reset kata sandi untuk ${b.dataset.name} (${b.dataset.email}):`;
+    $('reset-link-text').value = res.link;
+    $('admin-link-modal').showModal();
+  },
+  'copy-reset-link': async () => {
+    const link = $('reset-link-text').value;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast('Tautan reset berhasil disalin!');
+    } catch {
+      const el = $('reset-link-text');
+      el.select();
+      document.execCommand('copy');
+      toast('Tautan berhasil disalin!');
+    }
+  },
+  'admin-change-pw': b => {
+    $('setpw-email').value = b.dataset.email;
+    $('setpw-target-name').textContent = `Ubah password akun: ${b.dataset.name} (${b.dataset.email})`;
+    $('setpw-error').textContent = '';
+    $('admin-password-modal').showModal();
+  },
+  'admin-toggle-active': async b => {
+    await api('/admin/toggle-user', { method: 'POST', body: { uid: b.dataset.uid } });
+    state.cachedUsers = null;
+    toast('Status akun berhasil diubah.');
+    await dispatchRoute(getPath());
+  },
+  'admin-toggle-role': async b => {
+    const nextRole = b.dataset.role === 'pengajar' ? 'siswa' : 'pengajar';
+    const label = nextRole === 'pengajar' ? 'Pengajar (Guru)' : 'Siswa';
+    if (!confirm(`Ubah peran pengguna "${b.dataset.name}" menjadi "${label}"?`)) return;
+    await api('/admin/change-role', { method: 'POST', body: { uid: b.dataset.uid, role: nextRole } });
+    state.cachedUsers = null;
+    toast(`Peran ${b.dataset.name} berhasil diubah menjadi ${label}.`);
+    await dispatchRoute(getPath());
+  },
+  'admin-toggle-archive-class': async b => {
+    const isArchived = b.dataset.archived === 'true';
+    const msg = isArchived ? 'Buka arsip kelas ini agar aktif kembali untuk siswa dan guru?' : 'PERHATIAN: Mengarsipkan kelas akan menyembunyikan kelas dari siswa dan guru. Yakin ingin mengarsipkan kelas ini?';
+    if (!confirm(msg)) return;
+    await api(`/admin/classes/${b.dataset.id}/archive`, { method: 'POST', body: { archive: !isArchived } });
+    state.cachedClasses = null;
+    toast('Status kelas berhasil diubah.');
+    await dispatchRoute(getPath());
+  },
+  'admin-edit-class': b => {
+    $('edit-class-id').value = b.dataset.id;
+    $('edit-class-id-label').textContent = `Kode Kelas: ${b.dataset.id}`;
+    $('edit-class-name').value = b.dataset.name || '';
+    $('edit-class-period').value = b.dataset.period || '';
+    $('edit-class-desc').value = b.dataset.desc || '';
+    if ($('edit-class-error')) $('edit-class-error').textContent = '';
+    $('admin-edit-class-modal').showModal();
+  },
+  'admin-delete-class': async b => {
+    const name = b.dataset.name || b.dataset.id;
+    if (!confirm(`Yakin ingin menghapus kelas "${name}" secara permanen? Seluruh data keanggotaan kelas ini akan dihapus.`)) return;
+    await api(`/admin/classes/${b.dataset.id}`, { method: 'DELETE' });
+    state.cachedClasses = null;
+    toast(`Kelas "${name}" berhasil dihapus.`);
+    navigate('/admin/kelas');
+  },
+  'admin-remove-teacher': async b => {
+    if (!confirm('Hapus penugasan pengajar ini dari kelas?')) return;
+    await api(`/admin/classes/${b.dataset.cid}/remove-teacher`, { method: 'POST', body: { teacherId: b.dataset.uid } });
+    state.cachedClasses = null;
+    toast('Pengajar dikeluarkan dari kelas.');
+    await dispatchRoute(getPath());
+  },
+  'admin-unenroll-student': async b => {
+    if (!confirm('Keluarkan siswa ini dari kelas?')) return;
+    await api(`/admin/classes/${b.dataset.cid}/unenroll`, { method: 'POST', body: { studentId: b.dataset.uid } });
+    state.cachedClasses = null;
+    toast('Siswa dikeluarkan dari kelas.');
+    await dispatchRoute(getPath());
   }
-  const cls = cData.class;
-  const teachers = cData.teachers || [];
-  const members = cData.members || [];
-  const assignedTeacherIds = new Set(teachers.filter(t=>t.active!==false).map(t=>t.id));
-  const availableTeachers = allUsers.filter(u=>u.roles?.includes('pengajar') && !assignedTeacherIds.has(u.id));
-  const enrolledStudentIds = new Set(members.filter(m=>m.active!==false).map(m=>m.studentId||m.id));
-  const availableStudents = allUsers.filter(u=>u.roles?.includes('siswa') && !enrolledStudentIds.has(u.id));
-
-  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><button type="button" class="btn" data-action="admin-back-classes">${icon('arrowLeft')} Kembali ke Daftar Kelas</button><div style="display:flex;gap:8px"><button type="button" class="btn text" data-action="admin-edit-class" data-id="${esc(cls.id)}" data-name="${esc(cls.name)}" data-period="${esc(cls.period||'')}" data-desc="${esc(cls.description||'')}" style="display:inline-flex;align-items:center;gap:6px">${icon('edit')} Edit Info Kelas</button><button type="button" class="btn text danger" data-action="admin-delete-class" data-id="${esc(cls.id)}" data-name="${esc(cls.name)}" style="display:inline-flex;align-items:center;gap:6px">${icon('trash')} Hapus Kelas</button></div></div>`+
-  header('Kelola Kelas & Peserta', cls.name, `Kode: ${cls.id} · Periode: ${cls.period||'—'} · Status: ${cls.archivedAt?'Diarsipkan':'Aktif'}`)+
-  `<div class="adminlayout" style="grid-template-columns:minmax(0,1.3fr) minmax(320px,1fr);gap:24px"><section><div class="panel panelpad" style="margin-bottom:28px"><div class="sectionline"><h2 style="display:flex;align-items:center;gap:8px">${icon('teacher')} <span>Pengajar Kelas (${teachers.filter(t=>t.active!==false).length})</span></h2></div><div class="panel tablewrap"><table><thead><tr><th>NAMA PENGAJAR</th><th>USERNAME / EMAIL</th><th>STATUS</th><th>AKSI</th></tr></thead><tbody>${teachers.length?teachers.map(t=>`<tr style="${t.active===false?'opacity:0.6':''}"><td><strong>${esc(t.displayName||'—')}</strong></td><td><code>${esc(t.email||t.id)}</code></td><td><span class="tag ${t.active!==false?'green':''}">${t.active!==false?'Aktif':'Dihapus'}</span></td><td>${t.active!==false?`<button type="button" class="btn text danger" data-action="admin-remove-teacher" data-cid="${esc(cls.id)}" data-uid="${esc(t.id)}" style="padding:4px 8px;font-size:13px">Hapus Penugasan</button>`:'—'}</td></tr>`).join(''):'<tr><td colspan="4" class="muted" style="text-align:center;padding:16px">Belum ada pengajar di kelas ini.</td></tr>'}</tbody></table></div></div><div class="panel panelpad"><div class="sectionline"><h2 style="display:flex;align-items:center;gap:8px">${icon('student')} <span>Siswa Terdaftar (${members.filter(m=>m.active!==false).length})</span></h2></div><div class="panel tablewrap"><table><thead><tr><th>NAMA SISWA</th><th>USERNAME / EMAIL</th><th>KELAS SEKOLAH</th><th>STATUS</th><th>AKSI</th></tr></thead><tbody>${members.length?members.map(m=>`<tr style="${m.active===false?'opacity:0.6':''}"><td><strong>${esc(m.displayName||'—')}</strong></td><td><code>${esc(m.email||m.studentId||m.id)}</code></td><td>${esc(m.schoolClass||'—')}</td><td><span class="tag ${m.active!==false?'green':''}">${m.active!==false?'Aktif':'Keluar'}</span></td><td>${m.active!==false?`<button type="button" class="btn text danger" data-action="admin-unenroll-student" data-cid="${esc(cls.id)}" data-uid="${esc(m.studentId||m.id)}" style="padding:4px 8px;font-size:13px">Keluarkan</button>`:'—'}</td></tr>`).join(''):'<tr><td colspan="5" class="muted" style="text-align:center;padding:16px">Belum ada siswa terdaftar di kelas ini. Enrol melalui form di samping.</td></tr>'}</tbody></table></div></div></section><aside><form class="panel adminform" id="admin-assign-teacher-form" style="margin-bottom:24px"><input type="hidden" name="cid" value="${esc(cls.id)}"><h2>Tugaskan / Enrol Guru</h2><p class="tiny muted">Tugaskan akun guru untuk mengampu kelas ini. Akun harus memiliki peran Pengajar.</p><div class="field"><label for="assign-teacher-select">Pilih Guru (Pengajar)</label><select id="assign-teacher-select" name="teacherId" required><option value="">-- Pilih Guru --</option>${availableTeachers.map(u=>`<option value="${esc(u.id)}">${esc(u.displayName)} (${esc(u.email.replace('@secure.sch.id',''))})</option>`).join('')}</select>${!availableTeachers.length?'<small class="muted">Tidak ada guru lain yang tersedia. Pastikan akun sudah dibuat dengan peran "Pengajar" di menu Pengguna & Akses.</small>':''}</div><button class="btn primary full" type="submit" ${!availableTeachers.length?'disabled':''}>Tugaskan Guru ke Kelas</button></form><form class="panel adminform" id="admin-enroll-student-form"><input type="hidden" name="cid" value="${esc(cls.id)}"><h2>Enrol Siswa ke Kelas</h2><p class="tiny muted">Daftarkan akun siswa ke kelas ini. Data kelas otomatis diambil dari profil siswa.</p><div class="field"><label for="enroll-student-select">Pilih Siswa</label><select id="enroll-student-select" name="studentId" required><option value="">-- Pilih Siswa --</option>${availableStudents.map(u=>`<option value="${esc(u.id)}">${esc(u.displayName)} (${esc(u.email.replace('@secure.sch.id',''))})${u.schoolClass?` · Kelas: ${esc(u.schoolClass)}`:''}</option>`).join('')}</select>${!availableStudents.length?'<small class="muted">Tidak ada siswa lain yang tersedia. Buat akun siswa baru di menu Pengguna & Akses.</small>':''}</div><button class="btn primary full" type="submit" ${!availableStudents.length?'disabled':''}>Enrol Siswa</button></form></aside></div>`+adminEditClassModal();
-}
-async function homeView(){const c=classes.find(x=>x.id===cid),r=await api(`/classes/${cid}/meetings?limit=5`);const next=r.data.find(m=>new Date(m.closesAt)>new Date())||r.data[0];return header(c?.name||'SECURE',`Halo, ${me.displayName.split(' ')[0]}.`,mode==='pengajar'?'Materi dan kehadiran, siap untuk kelas berikutnya.':'Satu langkah kecil, satu hal baru yang bisa kamu buat.')+(next?`<div class="hero"><div class="herotext"><p class="eyebrow">PERTEMUAN</p><h2>${esc(next.title)}</h2><div class="metadata"><span>${esc(date(next.startsAt,true))}</span><span>${esc(next.location||'Lokasi belum diisi')}</span></div>${button(mode==='pengajar'?'Kelola presensi':'Scan presensi',mode==='pengajar'?'session':'nav',mode==='pengajar'?`data-id="${next.id}"`:'data-page="scan"','primary')}</div><div class="heroside"><span class="month">${esc(new Date(next.startsAt).toLocaleDateString('id-ID',{month:'short'}))}</span><span class="day">${new Date(next.startsAt).getDate()}</span><span class="tiny">${tag(next.session?.state||'Belum dibuka')}</span></div></div>`:empty('Pertemuan belum tersedia',mode==='pengajar'?'Buat pertemuan pertama dari menu Pertemuan & presensi.':'Jadwal akan muncul setelah dibuat pengajar.'))+`<div class="twocol"><div class="panel panelpad"><h2>Pustaka belajar</h2><p class="muted">Penjelasan, contoh kode, dan lampiran materi kelas.</p>${button('Buka materi','nav','data-page="materials"','','')}</div><div class="panel panelpad"><h2>${mode==='pengajar'?'Siapkan pertemuan':'Jejak kehadiran'}</h2><p class="muted">${mode==='pengajar'?'Atur jadwal dan jendela waktu presensi.':'Lihat catatan kehadiran dari seluruh kelasmu.'}</p>${button(mode==='pengajar'?'Lihat pertemuan':'Lihat riwayat','nav',`data-page="${mode==='pengajar'?'meetings':'history'}"`)}</div></div>`}
-async function materialsView(){const r=await api(`/classes/${cid}/materials`);materialCache=r.data;nextCursor=r.nextCursor;return header('Pustaka kelas','Materi belajar','Materi dimuat bertahap, 25 per halaman.',mode==='pengajar'?button('Tambah materi','new-material','','primary'):'')+`<div class="toolbar"><div class="search"><input id="material-search" placeholder="Cari pada materi yang dimuat…" aria-label="Cari materi" style="padding-left:12px"></div></div><div id="material-list">${materialList()}</div><div class="loadmore">${nextCursor?button('Muat lebih banyak','more-materials'):''}</div>`}
-function materialList(){const query=$('material-search')?.value?.toLowerCase()||'';const data=materialCache.filter(m=>m.title.toLowerCase().includes(query));return data.length?'<div class="panel listbox">'+data.map(m=>`<div class="row"><div class="fileicon mono">{ }</div><div class="rowbody"><h3>${esc(m.title)}</h3><p>${esc(m.topic)} · ${esc(date(m.updatedAt))}</p></div>${mode==='pengajar'?tag(m.status):''}${button('Buka','material',`data-id="${m.id}"`)}</div>`).join('')+'</div>':empty('Materi belum tersedia','Coba ubah pencarian atau tunggu pengajar menerbitkan materi.')}
-function renderEmbedRow(item={title:'',url:''},idx=0){return `<div class="embed-item-card panel" data-embed-row style="padding:14px 16px;margin-bottom:12px;background:#ffffff;border:1px solid var(--line);border-radius:var(--radius)"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="display:flex;align-items:center;gap:8px"><span class="guide-badge" style="font-size:9px">Dokumen #${idx+1}</span><strong class="embed-row-title" style="font-size:13px">${esc(item.title||`Dokumen / Presentasi #${idx+1}`)}</strong></div><button type="button" class="btn text" data-action="remove-embed-row" style="color:#dc2626;padding:2px 8px;font-size:12px;border:1px solid #fee2e2;border-radius:4px" title="Hapus baris embed ini">× Hapus</button></div><div class="embed-input-grid" style="display:grid;grid-template-columns:1fr 2fr;gap:12px"><div class="field" style="margin:0"><label style="font-size:12px;font-weight:600">Judul Dokumen / PPT</label><input type="text" class="embed-title-input" placeholder="Contoh: PPT Modul 1 / PPT Studi Kasus" value="${esc(item.title||'')}"></div><div class="field" style="margin:0"><label style="font-size:12px;font-weight:600">Tautan Share Google Drive / Slides / Canva</label><input type="url" class="embed-url-input" placeholder="https://docs.google.com/presentation/d/... atau https://www.canva.com/design/..." value="${esc(item.url||'')}"></div></div></div>`}
-async function detailView(){currentMaterial=await api(`/materials/${materialId}`);let m=currentMaterial;const bodyText=(m.body||'').trim();const body=bodyText?`<article class="panel panelpad prose">${DOMPurify.sanitize(marked.parse(bodyText),{FORBID_TAGS:['img','iframe','style','form','input','button','video','audio'],FORBID_ATTR:['style'],ALLOW_DATA_ATTR:false})}</article>`:'';const embedsList=(m.embeds&&Array.isArray(m.embeds)&&m.embeds.length)?m.embeds:[];if(!embedsList.length){const canvaEmbedSrc=m.canvaEmbedUrl||(m.canvaUrl?parseCanvaUrl(m.canvaUrl).embedUrl:'');if(canvaEmbedSrc)embedsList.push({type:'canva',title:'Presentasi Canva',url:m.canvaUrl||canvaEmbedSrc,embedUrl:canvaEmbedSrc});const driveEmbedSrc=m.driveEmbedUrl||(m.driveUrl?parseDriveUrl(m.driveUrl).embedUrl:'');if(driveEmbedSrc)embedsList.push({type:'drive',title:'Presentasi Google Drive',url:m.driveUrl||driveEmbedSrc,embedUrl:driveEmbedSrc})}let embedsHtml='';if(embedsList.length){embedsHtml=embedsList.map((emb,idx)=>{const isCanva=emb.type==='canva'||emb.url?.includes('canva.com');const embedSrc=emb.embedUrl||(isCanva?parseCanvaUrl(emb.url).embedUrl:parseDriveUrl(emb.url).embedUrl);const title=emb.title||(isCanva?`Presentasi Canva ${embedsList.length>1?'#'+(idx+1):''}`.trim():(emb.url?.includes('presentation')?`Google Slides ${embedsList.length>1?'#'+(idx+1):''}`.trim():`Google Drive ${embedsList.length>1?'#'+(idx+1):''}`.trim()));const badge=isCanva?'Canva':(emb.url?.includes('presentation')?'Google Slides':(emb.url?.includes('document')?'Google Docs':'Google Drive'));const openLabel=isCanva?'Buka di Canva ↗':'Buka di Drive ↗';const openUrl=emb.url||embedSrc;if(!embedSrc){return `<section class="panel panelpad" style="margin-top:20px"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px"><div style="display:flex;align-items:center;gap:10px"><span class="guide-badge">${badge}</span><strong style="font-size:14px">${esc(title)}</strong></div><a class="btn" href="${esc(openUrl)}" target="_blank" rel="noopener noreferrer">${openLabel}</a></div></section>`}return `<section class="drive-embed panel" style="margin-top:24px"><div class="embed-topbar" style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--side)"><div style="display:flex;align-items:center;gap:10px"><span class="guide-badge">${badge}</span><strong style="font-size:14px">${esc(title)}</strong></div><span class="tiny muted" style="font-weight:600">Dokumen #${idx+1}</span></div><iframe src="${esc(embedSrc)}" title="${esc(title)}" loading="lazy" allow="fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe><div class="drive-fallback"><span style="font-weight:600">${esc(title)}</span><a class="btn" href="${esc(openUrl)}" target="_blank" rel="noopener noreferrer">${openLabel}</a></div></section>`}).join('')}return button('← Kembali','nav','data-page="materials"','back')+header(m.topic,m.title,m.summary,mode==='pengajar'?button('Edit materi','edit-material'):'')+body+embedsHtml+(m.link?`<div class="notice" style="margin-top:24px"><a href="${esc(m.link)}" target="_blank" rel="noopener noreferrer">Buka referensi tambahan ↗</a></div>`:'')}
-function editorView(){let m=currentMaterial||{};let initialEmbeds=[];if(m.embeds&&Array.isArray(m.embeds)&&m.embeds.length){initialEmbeds=m.embeds}else{if(m.canvaUrl)initialEmbeds.push({title:'Presentasi Canva',url:m.canvaUrl});if(m.driveUrl)initialEmbeds.push({title:m.driveUrl.includes('/presentation/')?'Google Slides':'Presentasi Google Drive',url:m.driveUrl})}if(!initialEmbeds.length){initialEmbeds.push({title:'',url:''})}return header('Pustaka kelas',m.id?'Edit materi':'Tambah materi','Pilih metode yang sesuai: artikel Markdown, presentasi Canva, atau Google Drive.')+`<form id="material-form" class="panel panelpad editorform">${field('Judul','title',m.title||'')}${field('Ringkasan','summary',m.summary||'','text',false)}<div class="fieldgrid">${field('Topik','topic',m.topic||'JavaScript')}<div class="field"><label for="status">Status</label><select id="status" name="status">${['draft','published','archived'].map(s=>`<option value="${s}" ${(m.status||'draft')===s?'selected':''}>${statusText(s)}</option>`).join('')}</select></div></div><div class="field"><label for="body">Isi materi (Markdown)</label><textarea id="body" name="body" class="mono" rows="12" placeholder="Tulis isi materi dalam format Markdown jika menggunakan artikel...">${esc(m.body||'')}</textarea></div><div class="embed-instructions panel"><div class="embed-guide-header"><strong>Panduan Sematkan (Embed) Dokumen &amp; Presentasi</strong><p class="tiny muted" style="margin-top:4px">Bisa sematkan lebih dari 1 file presentasi (contoh: 2 file PPT di Google Drive atau Canva). Ikuti langkah berikut agar pratinjau langsung tampil:</p></div><div class="embed-guide-grid"><div class="embed-guide-card"><div class="embed-guide-title"><span class="guide-badge">Drive</span><strong>Langkah Embed Google Drive / Slides:</strong></div><ol class="embed-steps"><li>Buka file PPT atau dokumen di <strong>Google Drive</strong> / <strong>Google Slides</strong>.</li><li>Klik tombol <strong>Bagikan</strong> (<em>Share</em>) di pojok kanan atas.</li><li>Ubah akses umum menjadi <strong>"Siapa saja yang memiliki tautan"</strong> (<em>Anyone with link</em>) dengan akses <em>Pelihat</em>.</li><li>Salin tautan dan tempelkan ke kolom URL di bawah.</li></ol></div><div class="embed-guide-card"><div class="embed-guide-title"><span class="guide-badge">Canva</span><strong>Langkah Embed Canva:</strong></div><ol class="embed-steps"><li>Buka desain / slide di <strong>Canva</strong>.</li><li>Klik tombol <strong>Bagikan</strong> (<em>Share</em>) di pojok kanan atas.</li><li>Pilih <strong>Tautan hanya-lihat</strong> (<em>View-only link</em>) atau opsi <strong>Sematkan</strong> (<em>Embed</em>).</li><li>Salin tautan atau kode embed dan tempelkan ke kolom URL di bawah.</li></ol></div></div></div><div class="panel" style="margin:20px 0;padding:18px;border:1px solid var(--line);border-radius:var(--radius);background:var(--side)"><div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px"><div><strong style="font-size:14px;color:#000000;display:block">Daftar Sematan Dokumen / Presentasi (Bisa lebih dari 1)</strong><p class="tiny muted" style="margin-top:2px">Tambahkan semua file PPT atau dokumen pendukung. Misalnya jika ada PPT Teori dan PPT Studi Kasus di Google Drive, keduanya bisa disematkan bersamaan.</p></div><button type="button" class="btn" data-action="add-embed-row" style="font-weight:600;font-size:13px;background:#000;color:#fff">+ Tambah Embed Dokumen / PPT</button></div><div id="embed-items-list">${initialEmbeds.map((emb,i)=>renderEmbedRow(emb,i)).join('')}</div></div>${field('Tautan referensi HTTPS tambahan','link',m.link||'','url',false)}<p class="error" id="form-error" tabindex="-1" role="alert"></p><div class="buttonrow">${button('Batal','nav','data-page="materials"')}<button class="btn primary" type="submit">Simpan materi</button></div></form>`}
-async function meetingsView(){currentMeeting=null;const r=await api(`/classes/${cid}/meetings`);meetingCache=r.data;nextCursor=r.nextCursor;return header('Agenda kelas','Pertemuan','Jadwal dan materi untuk setiap pertemuan.',mode==='pengajar'?button('Buat pertemuan','new-meeting','','primary'):'')+`<div id="meeting-list">${meetingList()}</div><div class="loadmore">${nextCursor?button('Muat lebih banyak','more-meetings'):''}</div>`}
-function meetingList(){return meetingCache.length?'<div class="panel listbox">'+meetingCache.map(m=>`<div class="row"><div class="fileicon mono">${new Date(m.startsAt).getDate()}</div><div class="rowbody"><h3>${esc(m.title)}</h3><p>${esc(date(m.startsAt,true))} · ${esc(m.location||'Lokasi belum diisi')}</p><p>${(m.materialIds||[]).length} materi · Jam ${esc(time(m.startsAt))}–${esc(time(m.endsAt))}</p></div>${tag(m.session?.state||'Belum dibuka')}${button(mode==='pengajar'?'Kelola':'Buka','meeting-detail',`data-id="${m.id}"`)}</div>`).join('')+'</div>':empty('Belum ada pertemuan')}
-function quickNoteModal(){return `<dialog id="note-modal"><div class="modalhead"><h2>Catatan Kejadian Siswa</h2>${button('Tutup','close-modal')}</div><div class="modalbody"><form id="note-form"><input type="hidden" name="uid" id="note-uid"><p id="note-name" style="font-weight:600;margin-bottom:14px"></p><div class="field"><label for="note-input">Catatan Kejadian</label><textarea id="note-input" name="notes" placeholder="Tuliskan catatan kejadian khusus di sini (misal: izin sakit, dispensasi kegiatan, pulang lebih awal)..." maxlength="500"></textarea></div><p class="error" id="note-modal-error" tabindex="-1" role="alert"></p><div style="display:flex;justify-content:flex-end;gap:10px">${button('Batal','close-modal')}<button class="btn primary" type="submit">Simpan Catatan</button></div></form></div></dialog>`}
-function correctionModal(){return `<dialog id="correction"><div class="modalhead"><h2>Koreksi Presensi &amp; Kas</h2>${button('Tutup','close-modal')}</div><div class="modalbody"><form id="correction-form"><input type="hidden" name="uid" id="correction-uid"><p id="correction-name" style="font-weight:600;margin-bottom:16px"></p><div class="field"><label for="correction-status">Status Kehadiran</label><select name="status" id="correction-status"><option value="hadir">Hadir</option><option value="tidak_hadir">Tidak hadir</option></select></div><div class="field"><label for="correction-kas">Status Uang Kas</label><select name="kasPaid" id="correction-kas"><option value="1">✓ Sudah Bayar Kas</option><option value="0">Belum Bayar Kas</option></select></div><div class="field"><label for="correction-notes">Catatan Kejadian Tertentu</label><textarea id="correction-notes" name="notes" placeholder="Catat jika ada kejadian khusus di pertemuan ini..." maxlength="500"></textarea></div><p class="error" id="form-error" tabindex="-1" role="alert"></p><div style="display:flex;justify-content:flex-end;gap:10px">${button('Batal','close-modal')}<button class="btn primary" type="submit">Simpan Koreksi</button></div></form></div></dialog>`}
-async function meetingDetailView(){currentMeeting=await api(`/meetings/${meetingId}`);const m=currentMeeting.meeting,materials=currentMeeting.materials;let teacherAttendanceHtml='';if(mode==='pengajar'){rosterCache=await api(`/meetings/${meetingId}/attendance`);const r=rosterCache;const totalHadir=r.data.filter(x=>x.status==='hadir').length;const totalKas=r.data.filter(x=>x.kasPaid).length;const totalNotes=r.data.filter(x=>(x.notes||'').trim().length>0).length;teacherAttendanceHtml=`<section class="panel panelpad spaced" style="margin-top:28px"><div class="sectionline" style="flex-wrap:wrap;gap:12px"><div><h2>Rekapitulasi Kehadiran, Kas, &amp; Catatan Kejadian</h2><p class="muted" style="margin:0">Pantau kehadiran siswa, status pembayaran kas kelas, dan catatan kejadian khusus.</p></div><div style="display:flex;gap:8px;flex-wrap:wrap">${button('Buka Layar Presensi (QR)','session',`data-id="${m.id}"`,'primary')}${button('Unduh CSV Presensi','export')}</div></div><div class="statstrip" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;padding:16px 0"><div class="stat"><strong>${totalHadir} <span style="font-size:16px;color:var(--muted)">/ ${r.data.length}</span></strong><span>Siswa Hadir (${r.data.length-totalHadir} Tidak Hadir)</span></div><div class="stat"><strong>${totalKas} <span style="font-size:16px;color:var(--muted)">/ ${r.data.length}</span></strong><span>Sudah Bayar Kas (${r.data.length-totalKas} Belum Bayar)</span></div><div class="stat"><strong>${totalNotes}</strong><span>Siswa Berstatus Catatan Khusus</span></div></div><div class="tablewrap"><table><thead><tr><th>SISWA</th><th>STATUS KEHADIRAN</th><th>STATUS KAS KELAS</th><th>CATATAN KEJADIAN</th><th>AKSI</th></tr></thead><tbody>${r.data.length?r.data.map(x=>`<tr><td><strong>${esc(x.displayName)}</strong><small>${esc(x.schoolClass||'—')}</small></td><td><span class="tag ${x.status==='hadir'?'green':''}">${x.status==='hadir'?'Hadir':'Tidak hadir'}</span></td><td><button type="button" class="btn ${x.kasPaid?'btn-kas-paid':'btn-kas-unpaid'}" data-action="toggle-kas" data-uid="${esc(x.studentId)}" data-name="${esc(x.displayName)}">${x.kasPaid?'✓ Sudah Bayar':'Belum Bayar'}</button></td><td>${x.notes?`<div style="display:flex;align-items:center;gap:6px"><span class="student-note" title="${esc(x.notes)}">${esc(x.notes)}</span><button type="button" class="btn text" data-action="edit-note" data-uid="${esc(x.studentId)}" data-name="${esc(x.displayName)}" data-note="${esc(x.notes)}" style="padding:2px 6px;font-size:12px">${icon('edit')}</button></div>`:`<button type="button" class="btn text" data-action="edit-note" data-uid="${esc(x.studentId)}" data-name="${esc(x.displayName)}" data-note="" style="padding:2px 6px;font-size:12px;color:var(--muted)">+ Tambah Catatan</button>`}</td><td><button type="button" class="btn text" data-action="correct" data-uid="${esc(x.studentId)}" style="padding:4px 8px;font-size:13px">Ubah</button></td></tr>`).join(''):'<tr><td colspan="5" style="text-align:center;padding:24px" class="muted">Belum ada peserta terdaftar. Buka sesi presensi untuk menyalin peserta.</td></tr>'}</tbody></table></div></section>`}return button('← Semua pertemuan','nav','data-page="meetings"','back')+header('Pertemuan',m.title,`${date(m.startsAt,true)} · ${m.location||'Lokasi belum diisi'}`,mode==='pengajar'?button('Kelola info pertemuan','edit-meeting'):'')+`<div class="meeting-summary panel panelpad"><div><span class="eyebrow">JADWAL KELAS</span><strong>${esc(time(m.startsAt))}–${esc(time(m.endsAt))}</strong></div><div><span class="eyebrow">STATUS PRESENSI</span>${tag(currentMeeting.session?.state||'Belum dibuka')}</div></div>`+teacherAttendanceHtml+`<section class="spaced"><div class="sectionline"><div><h2>Materi pertemuan</h2><p class="muted">Materi yang dipilih pengajar khusus untuk pertemuan ini.</p></div>${mode==='pengajar'?button('Atur materi','edit-meeting'):''}</div>${materials.length?'<div class="panel listbox">'+materials.map(x=>`<div class="row"><div class="fileicon mono">{ }</div><div class="rowbody"><h3>${esc(x.title)}</h3><p>${esc(x.topic)} · ${esc(statusText(x.status))}</p></div>${button('Buka materi','material',`data-id="${x.id}"`)}</div>`).join('')+'</div>':empty('Belum ada materi pada pertemuan ini',mode==='pengajar'?'Klik Atur materi untuk menautkan materi dari pustaka kelas.':'Pengajar belum menautkan materi untuk pertemuan ini.')}</section>${mode!=='pengajar'&&currentMeeting.session?.state==='open'?`<div class="notice spaced"><p>Presensi sedang dibuka. Gunakan menu Scan presensi untuk melakukan check-in.</p></div>`:''}`+quickNoteModal()+correctionModal()}
-function localInput(d){let x=new Date(d);return new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,16)}
-async function meetingEditor(){let m=currentMeeting?.meeting||null,t=m?new Date(m.startsAt):new Date();t.setSeconds(0,0);const all=await api(`/classes/${cid}/materials?limit=50`),selected=new Set(m?.materialIds||[]);return header('Agenda kelas',m?'Kelola pertemuan':'Buat pertemuan',m?'Atur detail jadwal dan materi pertemuan.':'Tautkan materi yang akan terlihat pada detail pertemuan.')+`<form id="meeting-form" class="panel panelpad editorform">${field('Judul pertemuan','title',m?.title||'')}${field('Lokasi','location',m?.location||'','text',false)}<div class="fieldgrid">${field('Mulai kelas','startsAt',localInput(m?.startsAt||t),'datetime-local')}${field('Selesai kelas','endsAt',localInput(m?.endsAt||(+t+90*60000)),'datetime-local')}</div><fieldset class="material-picker"><legend>Materi pertemuan</legend><p class="tiny muted">Materi tetap muncul di pustaka umum. Pilihan ini hanya menentukan materi pada halaman pertemuan.</p>${all.data.length?all.data.map(x=>`<label class="checkrow"><input type="checkbox" name="materialIds" value="${esc(x.id)}" ${selected.has(x.id)?'checked':''}><span><strong>${esc(x.title)}</strong><small>${esc(x.topic)} · ${esc(statusText(x.status))}</small></span></label>`).join(''):'<p class="muted">Belum ada materi. Simpan materi terlebih dahulu.</p>'}</fieldset>${all.nextCursor?'<p class="notice">Hanya 50 materi terbaru yang dapat dipilih di form ini. Tambahkan pencarian server sebelum kelas melebihi batas tersebut.</p>':''}<p class="error" id="form-error" tabindex="-1" role="alert"></p><div class="buttonrow">${button('Batal','meeting-detail',m?`data-id="${m.id}"`:'data-id=""')}<button class="btn primary" type="submit">${m?'Simpan perubahan':'Buat pertemuan'}</button></div></form>`}
-let rosterCache=null;
-async function sessionView(){rosterCache=await api(`/meetings/${meetingId}/attendance`);const r=rosterCache,s=r.session;if(s?.state==='open'&&!qrState){try{const qrRes=await api(`/meetings/${meetingId}/qr`,{method:'POST'});qrState={...qrRes,meetingId};}catch{}}return header('Presensi kelas',r.meeting.title,`${date(r.meeting.startsAt,true)} · ${r.meeting.location||''}`,button('← Kembali ke Pertemuan','meeting-detail',`data-id="${meetingId}"`))+`<div class="sessionlayout"><section class="panel qrpanel"><div class="sectionline"><span class="eyebrow">KODE PRESENSI</span><span id="session-status">${tag(s?.state||'Belum dibuka')}</span></div><div id="qr-frame" class="qrframe ${qrState?'':'off'}"><div><strong>${s?.state==='closed'?'Presensi ditutup':qrState?'QR aktif':'QR belum ditampilkan'}</strong><p class="tiny">${s?'Buka atau generate QR untuk mulai menerima kehadiran siswa.':'Buka sesi presensi untuk mulai menerima kehadiran siswa.'}</p></div></div><p class="tiny muted" id="qr-note" style="line-height:1.5;margin-top:12px">${s?.state==='closed'?'Presensi telah ditutup oleh pengajar.':s?.state==='open'?'QR presensi aktif tanpa batas waktu. Presensi akan tetap terbuka sampai Anda menekan tombol Tutup presensi di bawah.':'Buka sesi presensi untuk mulai menampilkan QR presensi.'}</p><div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">${!s?button('Buka sesi presensi','open-session','','primary full'):s.state==='open'?`<div style="display:flex;flex-direction:column;gap:10px">${button('Perbarui Tampilan QR','generate-qr','','primary full')}${button('Tutup presensi','close-session','','danger full')}</div>`:''}</div></section><section><div class="sectionline"><h2>Kehadiran &amp; Kas Peserta</h2>${button('Unduh CSV','export')}</div><p id="roster-note" class="tiny muted">Pembaruan otomatis berkala saat halaman aktif.</p><div id="roster-panel">${rosterTable(r)}</div></section></div>`+quickNoteModal()+correctionModal()}
-function rosterTable(r){if(!r.session)return empty('Sesi belum dibuka','Daftar peserta disalin saat sesi pertama kali dibuka.');const totalHadir=r.data.filter(x=>x.status==='hadir').length;const totalKas=r.data.filter(x=>x.kasPaid).length;return `<div class="roster-stats-strip" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:10px 14px;background:var(--side);border:1px solid var(--line);border-radius:6px;font-size:13px"><span>Kehadiran: <strong>${totalHadir}</strong> / ${r.data.length} Hadir</span><span style="color:var(--line)">|</span><span>Kas: <strong>${totalKas}</strong> Sudah Bayar · <strong>${r.data.length - totalKas}</strong> Belum Bayar</span>${r.session.state==='closed'&&!r.session.finalizedAt?'<span style="color:var(--line)">|</span><span class="muted">Rekap difinalisasi</span>':''}</div><div class="panel tablewrap"><table><thead><tr><th>SISWA</th><th>STATUS KEHADIRAN</th><th>STATUS KAS</th><th>CATATAN KEJADIAN</th><th>AKSI</th></tr></thead><tbody>${r.data.map(x=>`<tr><td><strong>${esc(x.displayName)}</strong><small>${esc(x.schoolClass||'—')}</small></td><td><span class="tag ${x.status==='hadir'?'green':''}">${x.status==='hadir'?'Hadir':'Tidak hadir'}</span></td><td><button type="button" class="btn ${x.kasPaid?'btn-kas-paid':'btn-kas-unpaid'}" data-action="toggle-kas" data-uid="${esc(x.studentId)}" data-name="${esc(x.displayName)}">${x.kasPaid?'✓ Sudah Bayar':'Belum Bayar'}</button></td><td>${x.notes?`<div style="display:flex;align-items:center;gap:6px"><span class="student-note" title="${esc(x.notes)}">${esc(x.notes)}</span><button type="button" class="btn text" data-action="edit-note" data-uid="${esc(x.studentId)}" data-name="${esc(x.displayName)}" data-note="${esc(x.notes)}" style="padding:2px 6px;font-size:12px">${icon('edit')}</button></div>`:`<button type="button" class="btn text" data-action="edit-note" data-uid="${esc(x.studentId)}" data-name="${esc(x.displayName)}" data-note="" style="padding:2px 6px;font-size:12px;color:var(--muted)">+ Tambah Catatan</button>`}</td><td>${button('Ubah','correct',`data-uid="${esc(x.studentId)}"`,'text')}</td></tr>`).join('')}</tbody></table></div>`}
-function startSessionUpdates(){poll=setInterval(async()=>{if(document.hidden||page!=='session')return;try{rosterCache=await api(`/meetings/${meetingId}/attendance`);if(page!=='session'||!$('roster-panel'))return;$('roster-panel').innerHTML=rosterTable(rosterCache);$('session-status').innerHTML=tag(rosterCache.session?.state||'Belum dibuka');if(qrState&&rosterCache.session?.state!=='open')clearQR('Sesi presensi telah ditutup oleh pengajar.');$('roster-note').textContent='Terakhir diperbarui '+new Date().toLocaleTimeString('id-ID');}catch(e){if($('roster-note'))$('roster-note').textContent=friendly(e)}},15000);if(qrState?.meetingId===meetingId)drawQR()}
-function clearQR(note){qrState=null;if($('qr-frame')){$('qr-frame').classList.add('off');$('qr-frame').innerHTML='<strong>QR tidak aktif</strong>';$('qr-note').textContent=note;}}
-async function drawQR(){if(!qrState||!$('qr-frame'))return;const q=qrState;const url=await QRCode.toDataURL(q.payload,{margin:4,width:320,errorCorrectionLevel:'M',color:{dark:'#000000',light:'#ffffff'}});if(page!=='session'||qrState!==q||q.meetingId!==meetingId)return;$('qr-frame').classList.remove('off');$('qr-frame').innerHTML=`<img src="${url}" alt="QR presensi pertemuan aktif" width="264" height="264">`;if($('qr-note'))$('qr-note').innerHTML=`<strong>QR Presensi Aktif</strong><br>Siswa dapat memindai QR ini. QR aktif tanpa batas waktu dan akan tetap terbuka sampai pengajar menutup presensi.`;}
-function scanView(){return header('Presensi','Hadir, lalu mulai belajar.','Pindai QR SECURE yang ditampilkan pengajar.')+`<div class="scanlayout"><section><div id="scanner" class="live-scanner"></div><p id="scan-message" class="tiny muted spaced" role="status">Kamera belum aktif. Foto dan video tidak disimpan.</p><div class="buttonrow">${button('Aktifkan kamera','start-scan','','primary')}${button('Hentikan kamera','stop-scan')}</div><div id="scan-result"></div></section><aside><h2>Sebelum memindai</h2><p class="muted">Izinkan kamera, arahkan ke QR terbaru, lalu tunggu konfirmasi dari server.</p><div class="notice"><p>Kamera bermasalah? Minta pengajar mencatat kehadiran secara manual. Tidak tersedia kode cadangan publik.</p></div><div class="notice"><p>Jika koneksi terputus setelah scan, periksa riwayat sebelum mengulang.</p></div>${button('Lihat riwayat','nav','data-page="history"','spaced')}</aside></div>`}
-async function startScan(){await stopScan();if(!window.isSecureContext){throw Error('Kamera memerlukan HTTPS atau localhost.')}scanner=new Html5Qrcode('scanner');let handled=false;try{await scanner.start({facingMode:'environment'},{fps:8,qrbox:{width:220,height:220}},async text=>{if(handled)return;handled=true;await stopScan();if(!$('scan-message'))return;$('scan-message').textContent='Memvalidasi kehadiran ke server…';try{const r=await api('/attendance/check-in',{method:'POST',body:{payload:text}});if(!$('scan-result'))return;$('scan-message').textContent=r.code==='ALREADY_RECORDED'?'Presensi sudah tercatat sebelumnya.':'Presensi berhasil disimpan.';$('scan-result').innerHTML=`<div class="successbox spaced"><h2>${r.code==='ALREADY_RECORDED'?'Sudah tercatat.':'Kehadiran tersimpan.'}</h2><p>${esc(r.record.meetingTitle)}</p>${tag(r.record.status)}<p class="tiny spaced">${esc(date(r.record.checkedInAt,true))}</p>${button('Lihat riwayat','nav','data-page="history"')}</div>`}catch(e){if($('scan-message'))$('scan-message').textContent=friendly(e)+' Tekan Aktifkan kamera untuk mencoba kembali.'}},()=>{});if($('scan-message'))$('scan-message').textContent='Kamera aktif. Arahkan ke QR pengajar.'}catch(e){await stopScan();throw Error('Kamera tidak tersedia atau izinnya ditolak. Periksa izin browser dan gunakan HTTPS.')}}
-async function historyView(){const r=await api('/me/attendance');historyCache=r.data;nextCursor=r.nextCursor;return header('Kehadiran','Riwayat presensi','Hanya catatan milik akunmu yang ditampilkan.')+`<div id="history-list">${historyTable()}</div><div class="loadmore">${nextCursor?button('Muat lebih banyak','more-history'):''}</div>`}
-function historyTable(){return historyCache.length?`<div class="panel tablewrap"><table><thead><tr><th>PERTEMUAN</th><th>TANGGAL</th><th>CHECK-IN</th><th>STATUS</th><th>SUMBER</th></tr></thead><tbody>${historyCache.map(r=>`<tr><td>${esc(r.meetingTitle)}</td><td>${date(r.meetingStartsAt)}</td><td>${time(r.checkedInAt)}</td><td>${tag(r.status)}</td><td>${esc(r.source)}</td></tr>`).join('')}</tbody></table></div>`:empty('Belum ada catatan kehadiran','Catatan muncul setelah check-in atau setelah pengajar memfinalisasi pertemuan.')}
-function profileView(){return header('Akun','Profil saya','Identitas resmi ditetapkan pengelola; bio dan GitHub dapat diubah.')+`<form id="profile-form" class="panel panelpad profilecard"><div class="profilehead"><div class="avatar">${esc(me.displayName.slice(0,2).toUpperCase())}</div><div><h2>${esc(me.displayName)}</h2><p>${esc(me.email)}</p></div></div><div class="fieldgrid"><div class="field"><label>Nomor siswa</label><p>${esc(me.profile.studentNumber||'Belum diisi')}</p></div><div class="field"><label>Kelas sekolah</label><p>${esc(me.profile.schoolClass||'Belum diisi')}</p></div></div><div class="field"><label for="bio">Bio (maksimal 200 karakter)</label><textarea id="bio" name="bio" maxlength="200">${esc(me.profile.bio||'')}</textarea></div>${field('Profil GitHub','githubUrl',me.profile.githubUrl||'','url',false)}<p class="error" id="form-error" tabindex="-1" role="alert"></p><button class="btn primary" type="submit">Simpan profil</button>${button('Keluar dari semua perangkat','logout-all','','text spaced')}</form><form id="change-pw-form" class="panel panelpad" style="margin-top:24px"><h2>Ganti Kata Sandi</h2><p class="tiny muted" style="margin-bottom:16px">Gunakan form ini jika kamu mengingat kata sandi saat ini. Jika lupa kata sandi lama, silakan hubungi Admin untuk meminta tautan reset kata sandi baru.</p><div class="field"><label for="current-password">Kata sandi lama (saat ini)</label><input id="current-password" name="currentPassword" type="password" required placeholder="Masukkan kata sandi saat ini"></div><div class="fieldgrid"><div class="field"><label for="new-password">Kata sandi baru</label><input id="new-password" name="newPassword" type="password" required minlength="6" placeholder="Minimal 6 karakter"></div><div class="field"><label for="confirm-password">Konfirmasi kata sandi baru</label><input id="confirm-password" name="confirmPassword" type="password" required minlength="6" placeholder="Ulangi kata sandi baru"></div></div><p class="error" id="change-pw-error" tabindex="-1" role="alert"></p><button class="btn primary" type="submit">Ubah Kata Sandi</button></form>`}
-async function download(path,name){const r=await api(path,{raw:true}),blob=await r.blob(),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),2000)}
-const actionHandlers={
- 'auth-login':()=>{authMode='login';showAuth()},'auth-signup':()=>{authMode='signup';showAuth()},'auth-reset':()=>{authMode='reset';showAuth()},
- logout:()=>signOut(auth),'logout-all':async()=>{await api('/logout-all',{method:'POST'});await signOut(auth)},
- verify:async()=>{await sendEmailVerification(auth.currentUser);toast('Email verifikasi dikirim. Periksa inbox dan folder spam.')},recheck:async()=>{await auth.currentUser.reload();await auth.currentUser.getIdToken(true);await boot(auth.currentUser)},
- nav:b=>loadPage(b.dataset.page),reload:()=>loadPage(page),
- 'menu-open':()=>{$('sidebar').classList.add('open');$('menuback').classList.add('show')},'menu-close':()=>{$('sidebar').classList.remove('open');$('menuback').classList.remove('show')},
- material:b=>{materialId=b.dataset.id;return loadPage('material')},'new-material':()=>{currentMaterial=null;return loadPage('editor')},'edit-material':()=>loadPage('editor'),
- 'add-embed-row':()=>{const container=$('embed-items-list');if(!container)return;const count=container.querySelectorAll('[data-embed-row]').length;container.insertAdjacentHTML('beforeend',renderEmbedRow({title:'',url:''},count))},
- 'remove-embed-row':b=>{const row=b.closest('[data-embed-row]');if(row)row.remove();const container=$('embed-items-list');if(container){const rows=container.querySelectorAll('[data-embed-row]');if(!rows.length){container.innerHTML=renderEmbedRow({title:'',url:''},0)}else{rows.forEach((r,i)=>{const badge=r.querySelector('.guide-badge');if(badge)badge.textContent=`Dokumen #${i+1}`})}}},
- 'meeting-detail':b=>{if(!b.dataset.id)return loadPage('meetings');meetingId=b.dataset.id;currentMeeting=null;return loadPage('meeting-detail')},
- 'new-meeting':()=>{currentMeeting=null;return loadPage('new-meeting')},
- 'edit-meeting':()=>loadPage('new-meeting'),
- session:b=>{if(meetingId!==b.dataset.id)qrState=null;meetingId=b.dataset.id;return loadPage('session')},
- 'open-session':async()=>{await api(`/meetings/${meetingId}/open`,{method:'POST'});const r=await api(`/meetings/${meetingId}/qr`,{method:'POST'});qrState={...r,meetingId};await loadPage('session');toast('Sesi presensi dibuka & QR aktif.')},
- 'generate-qr':async()=>{const r=await api(`/meetings/${meetingId}/qr`,{method:'POST'});qrState={...r,meetingId};await drawQR();toast('QR berhasil diperbarui.')},
- 'close-session':async()=>{if(!confirm('Tutup presensi? Sesi tidak dapat dibuka ulang. Peserta yang belum tercatat akan diberi status tidak hadir.'))return;await api(`/meetings/${meetingId}/close`,{method:'POST'});qrState=null;await loadPage('session');toast('Sesi ditutup dan rekap difinalisasi.')},
- 'toggle-kas':async b=>{const sId=b.dataset.uid;const res=await api(`/meetings/${meetingId}/attendance/${sId}/toggle-kas`,{method:'POST'});toast(`Status kas ${b.dataset.name}: ${res.kasPaid?'Sudah Bayar':'Belum Bayar'}`);if(page==='session'){rosterCache=await api(`/meetings/${meetingId}/attendance`);if($('roster-panel'))$('roster-panel').innerHTML=rosterTable(rosterCache);}else if(page==='meeting-detail'){await loadPage('meeting-detail');}},
- 'edit-note':b=>{const sId=b.dataset.uid,name=b.dataset.name,currentNote=b.dataset.note||'';$('note-uid').value=sId;$('note-name').textContent=`Siswa: ${name}`;$('note-input').value=currentNote;if($('note-modal-error'))$('note-modal-error').textContent='';$('note-modal').showModal();},
- correct:b=>{const r=rosterCache.data.find(x=>x.studentId===b.dataset.uid);$('correction-uid').value=r.studentId;$('correction-name').textContent=`${r.displayName} (${r.schoolClass||'—'})`;$('correction-status').value=r.status==='hadir'?'hadir':'tidak_hadir';$('correction-kas').value=r.kasPaid?'1':'0';$('correction-notes').value=r.notes||'';if($('form-error'))$('form-error').textContent='';$('correction').showModal()},
- 'close-modal':()=>document.querySelectorAll('dialog[open]').forEach(d=>d.close()),
- export:()=>download(`/meetings/${meetingId}/export`,'presensi-secure.csv'),
- 'start-scan':startScan,'stop-scan':async()=>{await stopScan();if($('scan-message'))$('scan-message').textContent='Kamera dihentikan.'},
- 'more-materials':async()=>{const r=await api(`/classes/${cid}/materials?cursor=${encodeURIComponent(nextCursor)}`);materialCache.push(...r.data);nextCursor=r.nextCursor;$('material-list').innerHTML=materialList();document.querySelector('.loadmore').innerHTML=nextCursor?button('Muat lebih banyak','more-materials'):''},
- 'more-meetings':async()=>{const r=await api(`/classes/${cid}/meetings?cursor=${encodeURIComponent(nextCursor)}`);meetingCache.push(...r.data);nextCursor=r.nextCursor;$('meeting-list').innerHTML=meetingList();document.querySelector('.loadmore').innerHTML=nextCursor?button('Muat lebih banyak','more-meetings'):''},
- 'more-history':async()=>{const r=await api(`/me/attendance?cursor=${encodeURIComponent(nextCursor)}`);historyCache.push(...r.data);nextCursor=r.nextCursor;$('history-list').innerHTML=historyTable();document.querySelector('.loadmore').innerHTML=nextCursor?button('Muat lebih banyak','more-history'):''},
-  'admin-get-link':async b=>{const res=await api('/admin/reset-link',{method:'POST',body:{username:b.dataset.email}});$('reset-modal-info').textContent=`Tautan reset kata sandi untuk ${b.dataset.name} (${b.dataset.email}):`;$('reset-link-text').value=res.link;$('admin-link-modal').showModal()},
-  'copy-reset-link':async()=>{const link=$('reset-link-text').value;try{await navigator.clipboard.writeText(link);toast('Tautan reset berhasil disalin!');}catch{const el=$('reset-link-text');el.select();document.execCommand('copy');toast('Tautan berhasil disalin!');}},
-  'admin-change-pw':b=>{$('setpw-email').value=b.dataset.email;$('setpw-target-name').textContent=`Ubah password akun: ${b.dataset.name} (${b.dataset.email})`;$('setpw-error').textContent='';$('admin-password-modal').showModal()},
-  'admin-toggle-active':async b=>{await api('/admin/toggle-user',{method:'POST',body:{uid:b.dataset.uid}});cachedUsers=null;toast('Status akun berhasil diubah.');await loadPage(page)},
-  'admin-toggle-role':async b=>{const nextRole=b.dataset.role==='pengajar'?'siswa':'pengajar';const label=nextRole==='pengajar'?'Pengajar (Guru)':'Siswa';if(!confirm(`Ubah peran pengguna "${b.dataset.name}" menjadi "${label}"?`))return;await api('/admin/change-role',{method:'POST',body:{uid:b.dataset.uid,role:nextRole}});cachedUsers=null;toast(`Peran ${b.dataset.name} berhasil diubah menjadi ${label}.`);await loadPage('admin-users')},
-  'admin-select-class':b=>{adminSelectedClassId=b.dataset.id;page='admin-classes';renderShell();return loadPage('admin-classes')},
-  'admin-back-classes':()=>{adminSelectedClassId=null;page='admin-classes';renderShell();return loadPage('admin-classes')},
-  'admin-toggle-archive-class':async b=>{const isArchived=b.dataset.archived==='true';const msg=isArchived?'Buka arsip kelas ini agar aktif kembali untuk siswa dan guru?':'PERHATIAN: Mengarsipkan kelas akan menyembunyikan kelas dari siswa dan guru. Yakin ingin mengarsipkan kelas ini?';if(!confirm(msg))return;await api(`/admin/classes/${b.dataset.id}/archive`,{method:'POST',body:{archive:!isArchived}});cachedClasses=null;toast(`Status kelas berhasil diubah.`);await loadPage('admin-classes')},
-  'admin-edit-class':b=>{$('edit-class-id').value=b.dataset.id;$('edit-class-id-label').textContent=`Kode Kelas: ${b.dataset.id}`;$('edit-class-name').value=b.dataset.name||'';$('edit-class-period').value=b.dataset.period||'';$('edit-class-desc').value=b.dataset.desc||'';if($('edit-class-error'))$('edit-class-error').textContent='';$('admin-edit-class-modal').showModal()},
-  'admin-delete-class':async b=>{const name=b.dataset.name||b.dataset.id;if(!confirm(`Yakin ingin menghapus kelas "${name}" secara permanen? Seluruh data keanggotaan kelas ini akan dihapus.`))return;await api(`/admin/classes/${b.dataset.id}`,{method:'DELETE'});cachedClasses=null;toast(`Kelas "${name}" berhasil dihapus.`);if(adminSelectedClassId===b.dataset.id)adminSelectedClassId=null;await loadPage('admin-classes')},
-  'admin-remove-teacher':async b=>{if(!confirm('Hapus penugasan pengajar ini dari kelas?'))return;await api(`/admin/classes/${b.dataset.cid}/remove-teacher`,{method:'POST',body:{teacherId:b.dataset.uid}});cachedClasses=null;toast('Pengajar dikeluarkan dari kelas.');await loadPage('admin-classes')},
-  'admin-unenroll-student':async b=>{if(!confirm('Keluarkan siswa ini dari kelas?'))return;await api(`/admin/classes/${b.dataset.cid}/unenroll`,{method:'POST',body:{studentId:b.dataset.uid}});cachedClasses=null;toast('Siswa dikeluarkan dari kelas.');await loadPage('admin-classes')}
 };
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-action]');if(!b)return;const fn=actionHandlers[b.dataset.action];if(!fn)return;b.disabled=true;try{await fn(b)}catch(err){message(friendly(err))}finally{b.disabled=false}});
-document.addEventListener('input',e=>{if(e.target.id==='material-search')$('material-list').innerHTML=materialList()});
-document.addEventListener('change',async e=>{if(e.target.id==='class-select'){cid=e.target.value;qrState=null;await loadPage('home')}if(e.target.id==='role-select'){mode=e.target.value;classes=mode==='admin'?[]:await api('/classes');cid=classes[0]?.id||'';page=mode==='admin'?'admin-users':'home';qrState=null;renderShell();await loadPage(page)}});
-document.addEventListener('submit',async e=>{e.preventDefault();const f=e.target,b=f.querySelector('[type="submit"]');if(b)b.disabled=true;const data=Object.fromEntries(new FormData(f));if($('form-error'))$('form-error').textContent='';if($('change-pw-error'))$('change-pw-error').textContent='';try{
-  if(f.id==='auth-form'){let loginId=data.email.trim().toLowerCase();if(!loginId.includes('@'))loginId=`${loginId}@secure.sch.id`;if(authMode==='reset'){await sendPasswordResetEmail(auth,loginId);toast('Jika akun terdaftar, tautan reset dikirim. Jika akun username, hubungi Admin.');authMode='login';showAuth()}else if(authMode==='signup'){if(data.password.length<6)throw Error('Gunakan password minimal 6 karakter.');const u=await createUserWithEmailAndPassword(auth,loginId,data.password);await updateProfile(u.user,{displayName:data.name.trim()});toast('Akun berhasil dibuat.');await boot(u.user)}else await signInWithEmailAndPassword(auth,loginId,data.password)}
-  if(f.id==='admin-user-form'){const r=await api('/admin/users',{method:'POST',body:data});cachedUsers=null;let resetBtn=r.resetLink?`<div style="margin-top:10px"><button type="button" class="btn text" data-action="admin-get-link" data-email="${esc(r.email)}" data-name="${esc(r.name)}" style="padding:0;font-size:13px;display:inline-flex;align-items:center;gap:6px">${icon('link')} Salin Tautan Reset Kata Sandi</button></div>`:'';$('added-users-result').insertAdjacentHTML('afterbegin',`<div class="notice"><p><strong>Akun ${esc(r.role.toUpperCase())} Berhasil Dibuat:</strong><br>Username: <strong>${esc(r.username)}</strong> (<code>${esc(r.email)}</code>)<br>Nama: ${esc(r.name)}${r.schoolClass?`<br>Kelas: <strong>${esc(r.schoolClass)}</strong>`:''}<br>Password Awal: <code>${esc(r.initialPassword)}</code></p>${resetBtn}</div>`);f.reset();if($('admin-password'))$('admin-password').value='Secure123!';toast(`Akun ${r.username} (${r.role}) siap digunakan!`);setTimeout(()=>loadPage('admin-users'),2500)}
-  if(f.id==='admin-set-pw-form'){await api('/admin/set-password',{method:'POST',body:data});cachedUsers=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());toast(`Password baru untuk ${data.email} berhasil disimpan!`)}
-  if(f.id==='admin-create-class-form'){const r=await api('/admin/classes',{method:'POST',body:data});cachedClasses=null;toast(`Kelas ${data.name} berhasil dibuat!`);adminSelectedClassId=r.id;page='admin-classes';renderShell();await loadPage('admin-classes')}
-  if(f.id==='admin-edit-class-form'){await api(`/admin/classes/${data.cid}`,{method:'PATCH',body:{name:data.name,period:data.period,description:data.description}});cachedClasses=null;document.querySelectorAll('dialog[open]').forEach(d=>d.close());toast('Informasi kelas berhasil diperbarui!');await loadPage('admin-classes')}
-  if(f.id==='admin-assign-teacher-form'){await api(`/admin/classes/${data.cid}/assign-teacher`,{method:'POST',body:{teacherId:data.teacherId}});cachedClasses=null;toast('Pengajar berhasil ditugaskan!');await loadPage('admin-classes')}
-  if(f.id==='admin-enroll-student-form'){await api(`/admin/classes/${data.cid}/enroll`,{method:'POST',body:{studentId:data.studentId}});cachedClasses=null;toast('Siswa berhasil dienrol ke kelas!');await loadPage('admin-classes')}
-  if(f.id==='email-form'){const r=await api('/admin/emails',{method:'POST',body:{email:data['allowed-email']}});$('added-emails').insertAdjacentHTML('afterbegin',`<div class="notice"><p><strong>${esc(r.email)}</strong><br>Email berhasil ditambahkan ke daftar akses.</p></div>`);f.reset();toast('Email tersimpan di Firestore.')}
-  if(f.id==='profile-form'){await api('/me',{method:'PATCH',body:data});me=await api('/me');toast('Profil disimpan.')}
-  if(f.id==='change-pw-form'){if(!data.currentPassword)throw Error('Masukkan kata sandi lama saat ini.');if(!data.newPassword||data.newPassword.length<6)throw Error('Kata sandi baru minimal 6 karakter.');if(data.newPassword!==data.confirmPassword)throw Error('Konfirmasi kata sandi baru tidak cocok.');if(data.currentPassword===data.newPassword)throw Error('Kata sandi baru tidak boleh sama dengan kata sandi lama.');await api('/me/change-password',{method:'POST',body:{currentPassword:data.currentPassword,newPassword:data.newPassword}});f.reset();toast('Kata sandi berhasil diubah! Gunakan kata sandi baru saat masuk berikutnya.')}
-  if(f.id==='material-form'){const embedTitles=Array.from(f.querySelectorAll('.embed-title-input')).map(i=>i.value.trim());const embedUrls=Array.from(f.querySelectorAll('.embed-url-input')).map(i=>i.value.trim());const embeds=[];for(let i=0;i<embedUrls.length;i++){const rawU=embedUrls[i];if(!rawU)continue;const lines=rawU.split(/[\n\r]+/).map(s=>s.trim()).filter(Boolean);if(lines.length>1){lines.forEach((l,subIdx)=>{embeds.push({title:embedTitles[i]?`${embedTitles[i]} (Bagian ${subIdx+1})`:'',url:l})})}else{embeds.push({title:embedTitles[i]||'',url:rawU})}}if(data.canvaUrl?.trim()&&!embeds.some(e=>e.url===data.canvaUrl.trim())){embeds.push({title:'Presentasi Canva',url:data.canvaUrl.trim()})}if(data.driveUrl?.trim()&&!embeds.some(e=>e.url===data.driveUrl.trim())){embeds.push({title:'Presentasi Google Drive',url:data.driveUrl.trim()})}data.embeds=embeds;if(!data.body?.trim()&&!embeds.length&&!data.link?.trim())throw Error('Pilih minimal salah satu metode materi: isi Markdown, tautan presentasi embed, atau tautan referensi.');const r=currentMaterial?.id?await api(`/materials/${currentMaterial.id}`,{method:'PATCH',body:data}):await api(`/classes/${cid}/materials`,{method:'POST',body:data});materialId=currentMaterial?.id||r.id;await loadPage('material');toast('Materi disimpan.')}
-  if(f.id==='meeting-form'){data.materialIds=new FormData(f).getAll('materialIds');for(const k of ['startsAt','endsAt'])data[k]=new Date(data[k]).toISOString();if(currentMeeting?.meeting?.id){await api(`/meetings/${currentMeeting.meeting.id}`,{method:'PATCH',body:data});meetingId=currentMeeting.meeting.id;toast('Pertemuan dan tautan materi diperbarui.')}else{const r=await api(`/classes/${cid}/meetings`,{method:'POST',body:data});meetingId=r.id;toast('Pertemuan dibuat.')}currentMeeting=null;await loadPage('meeting-detail')}
-  if(f.id==='correction-form'){await api(`/meetings/${meetingId}/attendance/${data.uid}`,{method:'PATCH',body:{status:data.status,kasPaid:data.kasPaid==='1',notes:data.notes}});document.querySelectorAll('dialog[open]').forEach(d=>d.close());if(page==='session'){rosterCache=await api(`/meetings/${meetingId}/attendance`);if($('roster-panel'))$('roster-panel').innerHTML=rosterTable(rosterCache);}else{await loadPage('meeting-detail');}toast('Presensi dan status kas berhasil disimpan.')}
-  if(f.id==='note-form'){await api(`/meetings/${meetingId}/attendance/${data.uid}`,{method:'PATCH',body:{notes:data.notes}});document.querySelectorAll('dialog[open]').forEach(d=>d.close());if(page==='session'){rosterCache=await api(`/meetings/${meetingId}/attendance`);if($('roster-panel'))$('roster-panel').innerHTML=rosterTable(rosterCache);}else{await loadPage('meeting-detail');}toast('Catatan kejadian berhasil disimpan.')}
-}catch(err){if(f.id==='change-pw-form'&&$('change-pw-error'))$('change-pw-error').textContent=friendly(err);else message(friendly(err))}finally{if(b)b.disabled=false}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopScan()});window.addEventListener('pagehide',stopScan);document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('sidebar')){$('sidebar').classList.remove('open');$('menuback').classList.remove('show')}});
-if(configured)onAuthStateChanged(auth,user=>boot(user));else configScreen();
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-action]');
+  if (!b) return;
+  const fn = actionHandlers[b.dataset.action];
+  if (!fn) return;
+  b.disabled = true;
+  try {
+    await fn(b);
+  } catch (err) {
+    message(friendly(err));
+  } finally {
+    b.disabled = false;
+  }
+});
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'material-search') $('material-list').innerHTML = materialList();
+});
+
+document.addEventListener('change', async e => {
+  if (e.target.id === 'class-select') {
+    state.cid = e.target.value;
+    state.qrState = null;
+    await dispatchRoute(getPath());
+  }
+  if (e.target.id === 'role-select') {
+    state.mode = e.target.value;
+    state.classes = state.mode === 'admin' ? [] : await api('/classes');
+    state.cid = state.classes[0]?.id || '';
+    state.qrState = null;
+    renderShell();
+    const defaultPath = state.mode === 'admin' ? '/admin/pengguna' : '/beranda';
+    navigate(defaultPath);
+  }
+});
+
+document.addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, b = f.querySelector('[type="submit"]');
+  if (b) b.disabled = true;
+  const data = Object.fromEntries(new FormData(f));
+  if ($('form-error')) $('form-error').textContent = '';
+  if ($('change-pw-error')) $('change-pw-error').textContent = '';
+
+  try {
+    if (f.id === 'auth-form') {
+      let loginId = data.email.trim().toLowerCase();
+      if (!loginId.includes('@')) loginId = `${loginId}@secure.sch.id`;
+      if (state.authMode === 'reset') {
+        await sendPasswordResetEmail(auth, loginId);
+        toast('Jika akun terdaftar, tautan reset dikirim. Jika akun username, hubungi Admin.');
+        state.authMode = 'login';
+        showAuth();
+      } else if (state.authMode === 'signup') {
+        if (data.password.length < 6) throw Error('Gunakan password minimal 6 karakter.');
+        const u = await createUserWithEmailAndPassword(auth, loginId, data.password);
+        await updateProfile(u.user, { displayName: data.name.trim() });
+        toast('Akun berhasil dibuat.');
+        await boot(u.user);
+      } else {
+        await signInWithEmailAndPassword(auth, loginId, data.password);
+      }
+    }
+
+    if (f.id === 'admin-user-form') {
+      const r = await api('/admin/users', { method: 'POST', body: data });
+      state.cachedUsers = null;
+      let resetBtn = r.resetLink ? `<div style="margin-top:10px"><button type="button" class="btn text" data-action="admin-get-link" data-email="${esc(r.email)}" data-name="${esc(r.name)}" style="padding:0;font-size:13px;display:inline-flex;align-items:center;gap:6px">${icon('link')} Salin Tautan Reset Kata Sandi</button></div>` : '';
+      $('added-users-result').insertAdjacentHTML('afterbegin', `
+        <div class="notice">
+          <p>
+            <strong>Akun ${esc(r.role.toUpperCase())} Berhasil Dibuat:</strong><br>
+            Username: <strong>${esc(r.username)}</strong> (<code>${esc(r.email)}</code>)<br>
+            Nama: ${esc(r.name)}${r.schoolClass ? `<br>Kelas: <strong>${esc(r.schoolClass)}</strong>` : ''}<br>
+            Password Awal: <code>${esc(r.initialPassword)}</code>
+          </p>
+          ${resetBtn}
+        </div>
+      `);
+      f.reset();
+      if ($('admin-password')) $('admin-password').value = 'Secure123!';
+      toast(`Akun ${r.username} (${r.role}) siap digunakan!`);
+      setTimeout(() => dispatchRoute(getPath()), 2500);
+    }
+
+    if (f.id === 'admin-set-pw-form') {
+      await api('/admin/set-password', { method: 'POST', body: data });
+      state.cachedUsers = null;
+      document.querySelectorAll('dialog[open]').forEach(d => d.close());
+      toast(`Password baru untuk ${data.email} berhasil disimpan!`);
+    }
+
+    if (f.id === 'admin-create-class-form') {
+      const r = await api('/admin/classes', { method: 'POST', body: data });
+      state.cachedClasses = null;
+      toast(`Kelas ${data.name} berhasil dibuat!`);
+      navigate(`/admin/kelas/${r.id}`);
+    }
+
+    if (f.id === 'admin-edit-class-form') {
+      await api(`/admin/classes/${data.cid}`, { method: 'PATCH', body: { name: data.name, period: data.period, description: data.description } });
+      state.cachedClasses = null;
+      document.querySelectorAll('dialog[open]').forEach(d => d.close());
+      toast('Informasi kelas berhasil diperbarui!');
+      await dispatchRoute(getPath());
+    }
+
+    if (f.id === 'admin-assign-teacher-form') {
+      await api(`/admin/classes/${data.cid}/assign-teacher`, { method: 'POST', body: { teacherId: data.teacherId } });
+      state.cachedClasses = null;
+      toast('Pengajar berhasil ditugaskan!');
+      await dispatchRoute(getPath());
+    }
+
+    if (f.id === 'admin-enroll-student-form') {
+      await api(`/admin/classes/${data.cid}/enroll`, { method: 'POST', body: { studentId: data.studentId } });
+      state.cachedClasses = null;
+      toast('Siswa berhasil dienrol ke kelas!');
+      await dispatchRoute(getPath());
+    }
+
+    if (f.id === 'profile-form') {
+      await api('/me', { method: 'PATCH', body: data });
+      state.me = await api('/me');
+      toast('Profil disimpan.');
+    }
+
+    if (f.id === 'change-pw-form') {
+      if (!data.currentPassword) throw Error('Masukkan kata sandi lama saat ini.');
+      if (!data.newPassword || data.newPassword.length < 6) throw Error('Kata sandi baru minimal 6 karakter.');
+      if (data.newPassword !== data.confirmPassword) throw Error('Konfirmasi kata sandi baru tidak cocok.');
+      if (data.currentPassword === data.newPassword) throw Error('Kata sandi baru tidak boleh sama dengan kata sandi lama.');
+      await api('/me/change-password', { method: 'POST', body: { currentPassword: data.currentPassword, newPassword: data.newPassword } });
+      f.reset();
+      toast('Kata sandi berhasil diubah! Gunakan kata sandi baru saat masuk berikutnya.');
+    }
+
+    if (f.id === 'material-form') {
+      const embedTitles = Array.from(f.querySelectorAll('.embed-title-input')).map(i => i.value.trim());
+      const embedUrls = Array.from(f.querySelectorAll('.embed-url-input')).map(i => i.value.trim());
+      const embeds = [];
+      for (let i = 0; i < embedUrls.length; i++) {
+        const rawU = embedUrls[i];
+        if (!rawU) continue;
+        const lines = rawU.split(/[\n\r]+/).map(s => s.trim()).filter(Boolean);
+        if (lines.length > 1) {
+          lines.forEach((l, subIdx) => {
+            embeds.push({ title: embedTitles[i] ? `${embedTitles[i]} (Bagian ${subIdx + 1})` : '', url: l });
+          });
+        } else {
+          embeds.push({ title: embedTitles[i] || '', url: rawU });
+        }
+      }
+      if (data.canvaUrl?.trim() && !embeds.some(e => e.url === data.canvaUrl.trim())) {
+        embeds.push({ title: 'Presentasi Canva', url: data.canvaUrl.trim() });
+      }
+      if (data.driveUrl?.trim() && !embeds.some(e => e.url === data.driveUrl.trim())) {
+        embeds.push({ title: 'Presentasi Google Drive', url: data.driveUrl.trim() });
+      }
+      data.embeds = embeds;
+      if (!data.body?.trim() && !embeds.length && !data.link?.trim()) {
+        throw Error('Pilih minimal salah satu metode materi: isi Markdown, tautan presentasi embed, atau tautan referensi.');
+      }
+      const r = state.currentMaterial?.id
+        ? await api(`/materials/${state.currentMaterial.id}`, { method: 'PATCH', body: data })
+        : await api(`/classes/${state.cid}/materials`, { method: 'POST', body: data });
+      const targetId = state.currentMaterial?.id || r.id;
+      navigate(`/materi/${targetId}`);
+      toast('Materi disimpan.');
+    }
+
+    if (f.id === 'meeting-form') {
+      data.materialIds = new FormData(f).getAll('materialIds');
+      for (const k of ['startsAt', 'endsAt']) data[k] = new Date(data[k]).toISOString();
+      let targetMeetingId;
+      if (state.currentMeeting?.meeting?.id) {
+        await api(`/meetings/${state.currentMeeting.meeting.id}`, { method: 'PATCH', body: data });
+        targetMeetingId = state.currentMeeting.meeting.id;
+        toast('Pertemuan dan tautan materi diperbarui.');
+      } else {
+        const r = await api(`/classes/${state.cid}/meetings`, { method: 'POST', body: data });
+        targetMeetingId = r.id;
+        toast('Pertemuan dibuat.');
+      }
+      state.currentMeeting = null;
+      navigate(`/pertemuan/${targetMeetingId}`);
+    }
+
+    if (f.id === 'correction-form') {
+      const mId = getActiveMeetingId();
+      if (!mId) throw Error('ID pertemuan tidak ditemukan.');
+      await api(`/meetings/${mId}/attendance/${data.uid}`, {
+        method: 'PATCH',
+        body: { status: data.status, kasPaid: data.kasPaid === '1', notes: data.notes }
+      });
+      document.querySelectorAll('dialog[open]').forEach(d => d.close());
+      if (getPath().includes('/presensi')) {
+        state.rosterCache = await api(`/meetings/${mId}/attendance`);
+        if ($('roster-panel')) $('roster-panel').innerHTML = rosterTable(state.rosterCache);
+      } else {
+        await dispatchRoute(getPath());
+      }
+      toast('Presensi dan status kas berhasil disimpan.');
+    }
+
+    if (f.id === 'note-form') {
+      const mId = getActiveMeetingId();
+      if (!mId) throw Error('ID pertemuan tidak ditemukan.');
+      await api(`/meetings/${mId}/attendance/${data.uid}`, {
+        method: 'PATCH',
+        body: { notes: data.notes }
+      });
+      document.querySelectorAll('dialog[open]').forEach(d => d.close());
+      if (getPath().includes('/presensi')) {
+        state.rosterCache = await api(`/meetings/${mId}/attendance`);
+        if ($('roster-panel')) $('roster-panel').innerHTML = rosterTable(state.rosterCache);
+      } else {
+        await dispatchRoute(getPath());
+      }
+      toast('Catatan kejadian berhasil disimpan.');
+    }
+  } catch (err) {
+    if (f.id === 'change-pw-form' && $('change-pw-error')) $('change-pw-error').textContent = friendly(err);
+    else message(friendly(err));
+  } finally {
+    if (b) b.disabled = false;
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopScan();
+});
+window.addEventListener('pagehide', stopScan);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('sidebar')) {
+    $('sidebar').classList.remove('open');
+    $('menuback').classList.remove('show');
+  }
+});
+
+// Initialize router
+initRouter(routes, onRouteNotFound);
+
+if (configured) onAuthStateChanged(auth, user => boot(user));
+else configScreen();
